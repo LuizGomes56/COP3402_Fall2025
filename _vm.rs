@@ -1,4 +1,10 @@
-#![allow(non_snake_case, static_mut_refs, dead_code, unused_macros)]
+#![allow(
+    non_snake_case,
+    static_mut_refs,
+    dead_code,
+    unused_macros,
+    named_arguments_used_positionally
+)]
 /*
 Assignment:
     vm.c - Implement a P-machine virtual machine
@@ -178,7 +184,7 @@ macro_rules! INC {
 /// Unconditional jump to address a
 macro_rules! JMP {
     ($address:expr) => {{
-        PC = $address;
+        PC = 499 - $address;
     }};
 }
 
@@ -197,7 +203,7 @@ macro_rules! JPC {
 /// 3. Halt the program
 macro_rules! SYS {
     (1 $sp:expr) => {{
-        println!("{}", PAS[$sp as usize]);
+        println!("(1) {}", PAS[$sp as usize]);
         $sp += 1;
     }};
     (2 $sp:expr) => {{
@@ -205,7 +211,7 @@ macro_rules! SYS {
         $sp += 1;
     }};
     (3) => {{
-        panic!("Program Halted");
+        println!("Program Halted");
     }};
 }
 
@@ -306,10 +312,16 @@ fn main() {
             })
             .collect::<Vec<_>>();
 
-        let last_instruction = (instructions.len() - 1) * 3;
+        let last_instruction = 500 - instructions.len() * 3;
 
         SP = last_instruction as i32;
         BP = SP - 1;
+
+        println!(
+            "{:<10}{:<10}{:<10}{:<10}{:<10}{:<10}{:<10}",
+            "", "L", "M", "PC", "BP", "SP", "stack",
+        );
+        println!("{:<20}{:<10}{:<10}{:<10}", "Initial values:", PC, BP, SP);
 
         for instruction in instructions {
             PAS[PC as usize] = instruction.OP;
@@ -359,6 +371,22 @@ fn main() {
                     break;
                 }
             };
+            println!(
+                "{:<10}{:<10}{:<10}{:<10}{:<10}{:<10}{:<10}",
+                format!("{} ({})", OP_NAME!(IR.OP, IR.M), IR.OP),
+                IR.L,
+                IR.M,
+                PC,
+                BP,
+                SP,
+                {
+                    let mut parts = String::new();
+                    for i in (SP..=BP).rev() {
+                        parts.push_str(&format!("{} ", PAS[i as usize]));
+                    }
+                    parts
+                }
+            );
             counter += 1;
         }
 
