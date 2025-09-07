@@ -43,7 +43,7 @@ static mut PAS: [i32; 500] = [0; 500];
 // Points to the next instruction in the text segment.
 static mut PC: i32 = 499;
 
-// Literal push
+/// Literal push
 macro_rules! LIT {
     ($sp:expr, $n:expr) => {{
         $sp -= 1;
@@ -51,97 +51,97 @@ macro_rules! LIT {
     }};
 }
 
-// Return from subroutine and restore caller's AR
+/// Return from subroutine and restore caller's AR
 macro_rules! RTN {
-    ($sp:expr, $bp:expr) => {
+    ($sp:expr, $bp:expr) => {{
         $sp = $bp + 1;
-        $bp = PAS[$sp - 2];
-        PC = PAS[$sp - 3];
-    };
+        $bp = PAS[($sp - 2) as usize];
+        PC = PAS[($sp - 3) as usize];
+    }};
 }
 
-// Addition
+/// Addition
 macro_rules! ADD {
-    ($sp:expr) => {
+    ($sp:expr) => {{
         PAS[($sp + 1) as usize] += PAS[$sp as usize];
         $sp += 1;
-    };
+    }};
 }
 
-// Subtraction
+/// Subtraction
 macro_rules! SUB {
-    ($sp:expr) => {
+    ($sp:expr) => {{
         PAS[($sp + 1) as usize] -= PAS[$sp as usize];
         $sp += 1;
-    };
+    }};
 }
 
-// Multiplication
+/// Multiplication
 macro_rules! MUL {
-    ($sp:expr) => {
+    ($sp:expr) => {{
         PAS[($sp + 1) as usize] *= PAS[$sp as usize];
         $sp += 1;
-    };
+    }};
 }
 
-// Division
+/// Division
 macro_rules! DIV {
-    ($sp:expr) => {
+    ($sp:expr) => {{
         PAS[($sp + 1) as usize] /= PAS[$sp as usize];
         $sp += 1;
-    };
+    }};
 }
 
-// Equality comparison
+/// Equality comparison
 macro_rules! EQL {
-    ($sp:expr) => {
-        PAS[($sp + 1) as usize] = PAS[($sp + 1) as usize] == PAS[$sp as usize];
+    ($sp:expr) => {{
+        PAS[($sp + 1) as usize] = (PAS[($sp + 1) as usize] == PAS[$sp as usize]) as i32;
         $sp += 1;
-    };
+    }};
 }
 
-// Inequality comparison
+/// Inequality comparison
 macro_rules! NEQ {
-    ($sp:expr) => {
-        PAS[($sp + 1) as usize] = PAS[($sp + 1) as usize] != PAS[$sp as usize];
+    ($sp:expr) => {{
+        PAS[($sp + 1) as usize] = (PAS[($sp + 1) as usize] != PAS[$sp as usize]) as i32;
         $sp += 1;
-    };
+    }};
 }
 
-// Less-than comparison
+/// Less-than comparison
 macro_rules! LSS {
-    ($sp:expr) => {
-        PAS[($sp + 1) as usize] = PAS[($sp + 1) as usize] < PAS[$sp as usize];
+    ($sp:expr) => {{
+        PAS[($sp + 1) as usize] = (PAS[($sp + 1) as usize] < PAS[$sp as usize]) as i32;
         $sp += 1;
-    };
+    }};
 }
 
-// Less-or-equal comparison
+/// Less-or-equal comparison
 macro_rules! LEQ {
-    ($sp:expr) => {
-        PAS[($sp + 1) as usize] = PAS[($sp + 1) as usize] <= PAS[$sp as usize];
+    ($sp:expr) => {{
+        PAS[($sp + 1) as usize] = (PAS[($sp + 1) as usize] <= PAS[$sp as usize]) as i32;
         $sp += 1;
-    };
+    }};
 }
 
-// Greater-than comparison
+/// Greater-than comparison
 macro_rules! GTR {
     ($sp:expr) => {{
-        PAS[($sp + 1) as usize] = PAS[($sp + 1) as usize] > PAS[$sp as usize];
+        PAS[($sp + 1) as usize] = (PAS[($sp + 1) as usize] > PAS[$sp as usize]) as i32;
         $sp += 1;
     }};
 }
 
-// Greater-or-equal comparison
+/// Greater-or-equal comparison
 macro_rules! GEQ {
     ($sp:expr) => {{
-        PAS[($sp + 1) as usize] = PAS[($sp + 1) as usize] >= PAS[$sp as usize];
+        PAS[($sp + 1) as usize] = (PAS[($sp + 1) as usize] >= PAS[$sp as usize]) as i32;
         $sp += 1;
     }};
 }
 
-// Load value to top of stack from offset a in the AR n
-// static levels down.
+/// Load value to top of stack from offset a in the AR n
+/// static levels down.
 macro_rules! LOD {
     ($sp:expr, $bp:expr, $level:expr, $offset:expr) => {{
         $sp -= 1;
@@ -149,7 +149,7 @@ macro_rules! LOD {
     }};
 }
 
-// Store top of stack into offset o in the AR n static levels down
+/// Store top of stack into offset o in the AR n static levels down
 macro_rules! STO {
     ($sp:expr, $bp:expr, $level:expr, $offset:expr) => {{
         PAS[(base($bp, $level) - $offset) as usize] = PAS[$sp as usize];
@@ -157,7 +157,7 @@ macro_rules! STO {
     }};
 }
 
-// Call procedure at code address a; create activation record
+/// Call procedure at code address a; create activation record
 macro_rules! CAL {
     ($sp:expr, $bp:expr, $address:expr, $offset:expr) => {{
         PAS[($sp - 1) as usize] = base($bp, $offset);
@@ -168,21 +168,21 @@ macro_rules! CAL {
     }};
 }
 
-// Allocate n locals on the stack
+/// Allocate n locals on the stack
 macro_rules! INC {
     ($sp:expr, $offset:expr) => {{
         $sp -= $offset;
     }};
 }
 
-// Unconditional jump to address a
+/// Unconditional jump to address a
 macro_rules! JMP {
     ($address:expr) => {{
         PC = $address;
     }};
 }
 
-// Conditional jump: if value at top of stack is 0, jump to a; pop the stack.
+/// Conditional jump: if value at top of stack is 0, jump to a; pop the stack.
 macro_rules! JPC {
     ($sp:expr, $address:expr) => {{
         if (PAS[$sp as usize] == 0) {
@@ -192,9 +192,9 @@ macro_rules! JPC {
     }};
 }
 
-// 1. Output integer value at top of stack; then pop.
-// 2. Read an integer from stdin and push it
-// 3. Halt the program
+/// 1. Output integer value at top of stack; then pop.
+/// 2. Read an integer from stdin and push it
+/// 3. Halt the program
 macro_rules! SYS {
     (1 $sp:expr) => {{
         println!("{}", PAS[$sp as usize]);
@@ -320,26 +320,48 @@ fn main() {
 
         PC = 499;
 
-        panic!("Stack: {:?}", PAS);
-
-        #[allow(unreachable_code)]
-        loop {
+        let mut counter = 0;
+        while let Some(_) = PAS.get((PC - 2) as usize) {
             IR.OP = PAS[PC as usize];
             IR.L = PAS[(PC - 1) as usize];
             IR.M = PAS[(PC - 2) as usize];
             PC -= 3;
             match IR.OP {
-                1 => LIT!(BP, SP),
-                // 2 => OPR!(BP, SP, PC, IR.M),
-                3 => LOD!(BP, 0, 0, 0),
-                4 => STO!(BP, SP, PC, IR.M),
-                5 => CAL!(BP, SP, 0, 0),
-                6 => INC!(BP, SP),
-                7 => JMP!(BP),
-                8 => JPC!(BP, SP),
-                9 => SYS!(3),
-                _ => unreachable!(),
+                1 => LIT!(SP, IR.M),
+                2 => match IR.M {
+                    0 => RTN!(SP, BP),
+                    1 => ADD!(BP),
+                    2 => SUB!(SP),
+                    3 => MUL!(SP),
+                    4 => DIV!(SP),
+                    5 => EQL!(SP),
+                    6 => NEQ!(SP),
+                    7 => LSS!(SP),
+                    8 => LEQ!(SP),
+                    9 => GTR!(SP),
+                    10 => GEQ!(SP),
+                    _ => unreachable!(),
+                },
+                3 => LOD!(SP, BP, IR.L, IR.M),
+                4 => STO!(SP, BP, IR.L, IR.M),
+                5 => CAL!(SP, BP, IR.M, IR.L),
+                6 => INC!(SP, IR.M),
+                7 => JMP!(IR.M),
+                8 => JPC!(SP, IR.M),
+                9 => match IR.M {
+                    1 => SYS!(1 SP),
+                    2 => SYS!(2 SP),
+                    3 => SYS!(3),
+                    _ => unreachable!(),
+                },
+                _ => {
+                    println!("Unknown instruction: {}; Counter: {}", IR.OP, counter);
+                    break;
+                }
             };
+            counter += 1;
         }
+
+        println!("Stack: {:?}", PAS);
     }
 }
