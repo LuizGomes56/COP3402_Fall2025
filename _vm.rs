@@ -43,6 +43,9 @@ Due Date:
 // Process Address Space
 // .text = Addr 499..0; 3 words per instruction
 // .data = below .text section
+
+use std::io::{self, Write};
+
 static mut PAS: [i32; 500] = [0; 500];
 
 // Initialize PC to 499 (Page 3)
@@ -170,7 +173,7 @@ macro_rules! CAL {
         PAS[($sp - 2) as usize] = $bp;
         PAS[($sp - 3) as usize] = PC;
         $bp = $sp - 1;
-        PC = $address;
+        PC = 499 - $address;
     }};
 }
 
@@ -207,8 +210,16 @@ macro_rules! SYS {
         $sp += 1;
     }};
     (2 $sp:expr) => {{
-        println!("(2) {}", &PAS[$sp as usize]);
-        $sp += 1;
+        print!("Please enter an integer: ");
+        io::stdout().flush().expect("Failed to flush stdout");
+        let mut line = String::new();
+        io::stdin()
+            .read_line(&mut line)
+            .expect("Failed to read line");
+        let n = line.trim().parse::<i32>().expect("Invalid number entered");
+        // push n onto the stack
+        PAS[($sp - 1) as usize] = n;
+        $sp -= 1;
     }};
     (3) => {{
         println!("Program Halted");
@@ -232,7 +243,7 @@ macro_rules! OP_NAME {
                 8 => "LEQ",
                 9 => "GTR",
                 10 => "GEQ",
-                _ => unreachable!(),
+                _ => "OPR",
             },
             3 => "LOD",
             4 => "STO",
