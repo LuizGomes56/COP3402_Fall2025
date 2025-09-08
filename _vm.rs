@@ -1,5 +1,7 @@
 #![allow(non_snake_case, static_mut_refs, dead_code, unused_assignments)]
 
+// #![author = Luiz Gustavo Santana Dias Gomes]
+
 // Because of this, that's not really a "no-std" program
 // But in C we would have to import stdlib.h the same way
 use std::io::{self, Write};
@@ -313,7 +315,7 @@ fn main() {
                 SP,
             );
 
-            // Creat e a copy of current AR and print everything until it reaches zero
+            // Create a copy of current AR and print everything until it reaches zero
             let mut level = AR;
             while level > 0 {
                 // Print the base stack (Stack zero)

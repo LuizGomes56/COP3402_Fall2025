@@ -7,7 +7,7 @@ Assignment:
     vm.c - Implement a P-machine virtual machine
 
 Authors:
-    Luiz Gustavo Santana Dias Gomes, Daniel Scariti
+    Luiz Gustavo Santana Dias Gomes
 
 Language: C (only)
 
@@ -37,7 +37,11 @@ Due Date:
     Friday, September 12th, 2025
 */
 
+/// Stack size was determined to be 500 in the assignment details
 #define STACK_SIZE 500
+
+/// PC of a downward moving stack is the length of Stack - 1
+/// to match the last index in it
 #define PC_BASE STACK_SIZE - 1
 
 // Process Address Space
@@ -74,7 +78,8 @@ typedef struct InstRegister {
     int M;
 } InstRegister;
 
-int main() {
+// argv[1] will be the path to input file
+int main(int argc, char *argv[]) {
     // Last M word (Lowest address used by code)
     // Points to the top of the stack. The stack grows downward (decrementing SP)
     // when values are pushed and upward when values are popped
@@ -94,44 +99,71 @@ int main() {
     PC -= 3
     */
 
-    FILE *fileptr = fopen("input.txt", "r");
+    // Open input file
+    FILE *fileptr = fopen(argv[1], "r");
     if (!fileptr) {
+        puts("Could not read input file. Maybe path is wrong?");
         return 1;
     }
 
-    InstRegister instructions[100];
+    // Maximum of 500 instructions for that file
+    InstRegister instructions[500];
 
+    // Maximum of 500 characters for each line split
     char buffer[500];
-    // Read the file line by line
 
+    // Keep track of how many instructions there are in the file
     int len_instructions = 0;
+
+    // Read the file line by line
     while (fgets(buffer, sizeof(buffer), fileptr) != NULL) {
         char *token;
+        // .split(" ") -> Get tokens separated by whitespace
         token = strtok(buffer, " ");
+
+        // Track how many numbers were fetched so far
         int j = 0;
         while (token != NULL) {
+            // atoi -> Convert string to integer
+            // J == 0 -> OP
             if (j == 0) {
                 instructions[len_instructions].OP = atoi(token);
-            } else if (j == 1) {
+            }
+            // J == 1 -> L
+            else if (j == 1) {
                 instructions[len_instructions].L = atoi(token);
-            } else if (j == 2) {
+            }
+            // J == 2 -> M
+            // If j is more than that, there must be an error in input file
+            else if (j == 2) {
                 instructions[len_instructions].M = atoi(token);
             }
+            // Get next token, also divided by whitespace
             token = strtok(NULL, " ");
+            // increment j
             j++;
         }
+        // Increment instructions
         len_instructions++;
     }
 
     // Close the file
     fclose(fileptr);
 
+    // Formula to get the last instruction
+    // 3 words, X instructions; Growing downwards
     SP = STACK_SIZE - len_instructions * 3;
+
+    // Assignment specifications
     BP = SP - 1;
 
-    printf("%8s%8s%5s%5s%5s%5s%s\n", "", "L", "M", "PC", "BP", "SP", "stack");
-    printf("%21s%5d%5d%5d\n", "Initial values:", PC, BP, SP);
+    // Print table headers
+    printf("%-8s%-8s%-5s%-5s%-5s%-5s%-s\n", "", "L", "M", "PC", "BP", "SP", "stack");
+    printf("%-21s%-5d%-5d%-5d\n", "Initial values:", PC, BP, SP);
 
+    // Load each instruction to the PAS variable
+    // PC -= 3 here has nothing to do with the start of the program. I just
+    // used it because it was initialized with the same value as the PAS length
     for (int i = 0; i < len_instructions; i++) {
         InstRegister instruction = instructions[i];
         PAS[PC] = instruction.OP;
@@ -140,9 +172,19 @@ int main() {
         PC -= 3;
     }
 
+    // Get PC back to its original value before starting the true execution of the program
     PC = PC_BASE;
 
-    while ((PC - 2) < PC_BASE && (PC - 2) > 0 && PAS[PC - 2] != 0) {
+    // Track when to exit the program
+    int may_exit = 0;
+
+    // Know how many AR's other than the first one should be printed
+    int AR = 0;
+
+    // Safety check that PAS[PC - 2] is defined does not work in C
+    // `while let Some(_) = PAS.get(PC - 2)`
+    // Infinite loop, SYS (#3) must be called at some point
+    while (1) {
         // Load everything to the IR variable
         IR.OP = PAS[PC];
         IR.L = PAS[PC - 1];
@@ -151,10 +193,7 @@ int main() {
         PC -= 3;
 
         // IR.OP is always the first digit of a line in that input.txt file
-        // Just map each one to an instruction. In C we're going to use lots of if's
-        // or a switch statement
         // Everything below is from the homework 1 assignment details
-        // We should inline every macro since they're not used anywhere else
         switch (IR.OP) {
         // Literal push
         case 1: {
@@ -169,6 +208,9 @@ int main() {
                 SP = BP + 1;
                 BP = PAS[SP - 2];
                 PC = PAS[SP - 3];
+                // Remove an AR because a function returned a value
+                // So its stack should be "deleted"
+                AR -= 1;
                 break;
             }
             // Addition
@@ -254,6 +296,9 @@ int main() {
             PAS[SP - 3] = PC;
             BP = SP - 1;
             PC = PC_BASE - IR.M;
+            // Calling a new function reserves space on the stack for it
+            // So AR + 1 is to print this one to the console
+            AR += 1;
             break;
         }
         // Allocate n locals on the stack
@@ -274,14 +319,16 @@ int main() {
             SP += 1;
             break;
         }
-            // Compound instruction as well. M determines what action of SYS to take
+        // Compound instruction as well. M determines what action of SYS to take
         case 9:
             switch (IR.M) {
             // 1. Output integer value at top of stack; then pop.
             case 1: {
+                printf("%s%d\n", "Output result is: ", PAS[SP]);
                 SP += 1;
                 break;
             }
+            // 2. Read an integer from stdin and push it
             case 2: {
                 int value;
                 printf("%s", "Please Enter an Integer: ");
@@ -290,83 +337,122 @@ int main() {
                 SP -= 1;
                 break;
             }
+            // 3. Halt the program
             case 3: {
-                exit(0);
+                // Print details of this instruction before calling exit
+                may_exit = 1;
                 break;
             }
             }
         }
 
-        char *op_name[3];
+        // Name of the operation that was just executed
+        // Initialize empty to avoid Warnings
+        char op_name[4] = {0};
+
+        // Record the name of the operation
+        // by assigning it to op_name
         switch (IR.OP) {
         case 1:
-            *op_name = "LIT";
+            strcpy(op_name, "LIT");
             break;
         case 2:
             switch (IR.M) {
             case 0:
-                *op_name = "RTN";
+                strcpy(op_name, "RTN");
                 break;
             case 1:
-                *op_name = "ADD";
+                strcpy(op_name, "ADD");
                 break;
             case 2:
-                *op_name = "SUB";
+                strcpy(op_name, "SUB");
                 break;
             case 3:
-                *op_name = "MUL";
+                strcpy(op_name, "MUL");
                 break;
             case 4:
-                *op_name = "DIV";
+                strcpy(op_name, "DIV");
                 break;
             case 5:
-                *op_name = "EQL";
+                strcpy(op_name, "EQL");
                 break;
             case 6:
-                *op_name = "NEG";
+                strcpy(op_name, "NEG");
                 break;
             case 7:
-                *op_name = "LSS";
+                strcpy(op_name, "LSS");
                 break;
             case 8:
-                *op_name = "LEQ";
+                strcpy(op_name, "LEQ");
                 break;
             case 9:
-                *op_name = "GTR";
+                strcpy(op_name, "GTR");
                 break;
             case 10:
-                *op_name = "GEQ";
+                strcpy(op_name, "GEQ");
                 break;
             }
+            break;
         case 3:
-            *op_name = "LOD";
+            strcpy(op_name, "LOD");
             break;
         case 4:
-            *op_name = "STO";
+            strcpy(op_name, "STO");
             break;
         case 5:
-            *op_name = "CAL";
+            strcpy(op_name, "CAL");
             break;
         case 6:
-            *op_name = "INC";
+            strcpy(op_name, "INC");
             break;
         case 7:
-            *op_name = "JMP";
+            strcpy(op_name, "JMP");
             break;
         case 8:
-            *op_name = "JPC";
+            strcpy(op_name, "JPC");
             break;
         case 9:
-            *op_name = "SYS";
+            strcpy(op_name, "SYS");
             break;
         }
 
-        printf("%8s%8d%5d%5d%5d%5d", *op_name, IR.L, IR.M, PC, BP, SP);
+        printf("%-8s%-8d%-5d%-5d%-5d%-5d", op_name, IR.L, IR.M, PC, BP, SP);
 
-        for (int i = BP - SP + 1; i > 0; i--) {
-            printf("%2d", PAS[i]);
+        // Create a copy of current AR and print everything until it reaches zero
+        int level = AR;
+        while (level > 0) {
+            // Print the base stack (Stack zero)
+            // From the RTN instruction there's:
+            // SP = BP + 1;
+            // BP = PAS[SP - 2];
+            // So BP + 1 replaces SP, and PAS[BP - 1] is BP
+            // So this is the base record (Main AR)
+            for (int i = PAS[BP - 1]; i >= BP + 1; --i) {
+                printf("%-2d ", PAS[i]);
+            }
+
+            // If SP - 1 is equal to BP, then there's nothing really in that AR
+            if (SP - 1 != BP) {
+                printf("%s", "| ");
+            }
+            // Avoid infinite loop
+            level -= 1;
         }
+
+        // Remember that the stack grows downwards, so their order
+        // of elements is also inverted
+        // This prints the contents of the current AR
+        for (int i = BP; i >= SP; --i) {
+            printf("%-2d ", PAS[i]);
+        }
+
+        // Go to new line
         puts("");
+
+        // Exit the program when SYS 3 is called
+        if (may_exit) {
+            exit(0);
+        }
     }
     return 0;
 }

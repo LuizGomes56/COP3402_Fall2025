@@ -7,8 +7,12 @@ System's Software class
 AI PROMPTS USED SO FAR (COMMIT #6) Description = [CAL, SYS, JMP, INC, LIT]
 #[CHAT GPT 5 THINKING]
 
-# PROMPT #1
-Corrija: println!("{:<width$}L{:<width$} M{:<width$} PC{:<width$}BP{:<width$}SP{:<width$}stack", width = 10);
+## Notes
+
+- Supplementary source: `https://www.geeksforgeeks.org/c/c-program-to-read-contents-of-whole-file`
+
+### PROMPT #1
+Corrija: `println!("{:<width$}L{:<width$} M{:<width$} PC{:<width$}BP{:<width$}SP{:<width$}stack", width = 10);`
 
 RAW ANSWER:
 
@@ -38,7 +42,7 @@ for col in ["L", "M", "PC", "BP", "SP", "stack"] {
 println!();
 ```
 
-# PROMPT #2
+### PROMPT #2
 `unsafe extern "C" fn scanf(fmt: *const i8) {}` Como pegar input do console em Rust?
 
 RAW ANSWER:

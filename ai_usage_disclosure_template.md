@@ -1,8 +1,12 @@
 # AI Usage Disclosure Details
 
-**Student Name:** [Your Full Name]
-**Student ID:** [Your Student ID]
-**Assignment:** [Assignment Name/Number]
+**Student Name:** Luiz Gustavo Santana Dias Gomes
+
+
+**Student ID:** 5678035
+
+
+**Assignment:** Homework 1
 
 ---
 
@@ -15,113 +19,79 @@ Complete this template with detailed information about your AI usage. Submit thi
 ## AI Tool #1
 
 ### Tool Name
-[e.g., ChatGPT, Claude, GitHub Copilot, Gemini, Perplexity, etc.]
+ChatGPT
 
 ### Version/Model
-[e.g., GPT-4, GPT-4 Turbo, GPT-5, Claude Sonnet 3.5, Claude 4, GitHub Copilot (GPT-4), etc.]
+GPT-5
 
 ### Date(s) Used
-[e.g., January 15, 2025; January 18, 2025; January 20, 2025]
+September 6, 2025
 
 ### Specific Parts of Assignment
-[Describe exactly which portions of your work involved AI assistance]
-[e.g., Code debugging for functions calculateHash() and validateInput(); Literature review for Section 2.3; Writing assistance for conclusion paragraph; Algorithm optimization for sorting function]
+
+- The first version of this assignment was written in Rust, then translated into C. Only two prompts were used, one related to how to get user input using Rust stdlib, and the other one regarding how to add a left padding, and align text to the left when printing to the console
+
+- Supplementary source: `https://www.geeksforgeeks.org/c/c-program-to-read-contents-of-whole-file`
 
 ### Prompts Used
-[Provide the exact prompts/questions you asked the AI tool]
-[e.g., "Help me debug this Python function that calculates SHA-256 hashes"]
-[e.g., "Explain the difference between symmetric and asymmetric encryption"]
-[e.g., "Review this code for security vulnerabilities"]
+1. Corrija: `println!("{:<width$}L{:<width$} M{:<width$} PC{:<width$}BP{:<width$}SP{:<width$}stack", width = 10);`
+
+2. `unsafe extern "C" fn scanf(fmt: *const i8) {}` Como pegar input do console em Rust?
 
 ### AI Output/Results
-[Describe what the AI tool provided in response]
-[e.g., AI provided corrected code with explanations of the logic errors]
-[e.g., AI generated a comparison table of encryption methods]
-[e.g., AI suggested using input validation and error handling]
+
+- Prompt #1 answer:
+    ```rs
+    println!("{:<10}{:<10}{:<10}{:<10}{:<10}{:<10}", "L", "M", "PC", "BP", "SP", "stack");
+    ```
+
+    - This translates to:
+    ```c
+    printf("%-10s ...", ...);
+    ```
+
+    - Also not relevant for the final submission
+
+- Prompt #2 best answer: 
+    ```rs
+    use std::io::{self, Write};
+
+    fn main() -> io::Result<()> {
+        print!("Digite um número: ");
+        io::stdout().flush()?; // garante que o prompt aparece
+
+        let mut line = String::new();
+        io::stdin().read_line(&mut line)?;
+        let n: i32 = line.trim().parse().expect("número inválido");
+
+        println!("Você digitou {n}");
+        Ok(())
+    }
+    ```
+    - This is an alternative form of using C's `scanf` function, without the usage of Foreign Function Interface (FFI). This had no impact on the final submission (C file).
+
 
 ### How Output was Verified/Edited
-[Explain how you verified accuracy, made modifications, or tested the AI output]
-[e.g., Tested the corrected code with sample inputs; Verified encryption explanations against textbook; Implemented suggested security measures and tested functionality]
+
+- Rust output was verified. Raw file content will be submitted.
 
 ### Multiple Iterations (if applicable)
-[If you used AI tools multiple times, provide a dialogue/conversation summary]
-[e.g., First asked for algorithm explanation, then requested code example, finally asked for optimization suggestions]
-[e.g., Had 3-turn conversation about debugging process: initial problem → AI suggestion → follow-up clarification]
+- Not applicable
 
 ### Learning & Reflection
-[Reflect on what you learned and how the AI assistance contributed to your understanding]
-[e.g., I learned about proper error handling techniques and improved my debugging skills]
-[e.g., Understanding of cryptographic concepts was enhanced through AI explanations]
+
+- I learned how to get user input using Rust (I hadn't done it before), and how to properly print values to the console, aligning to the left/right, and adding padding to it.
 
 ---
 
 ## AI Tool #2 (if applicable)
-
-### Tool Name
-[Tool name if you used a different AI tool]
-
-### Version/Model
-[Version/model information]
-
-### Date(s) Used
-[Dates when this tool was used]
-
-### Specific Parts of Assignment
-[Which parts of the assignment involved this tool]
-
-### Prompts Used
-[Exact prompts given to this tool]
-
-### AI Output/Results
-[What this tool provided]
-
-### How Output was Verified/Edited
-[How you verified/modified the output from this tool]
-
-### Multiple Iterations (if applicable)
-[Conversation flow if multiple interactions occurred]
-
-### Learning & Reflection
-[What you learned from using this tool]
-
----
-
-## AI Tool #3 (if applicable)
-
-### Tool Name
-[Tool name if you used a third AI tool]
-
-### Version/Model
-[Version/model information]
-
-### Date(s) Used
-[Dates when this tool was used]
-
-### Specific Parts of Assignment
-[Which parts of the assignment involved this tool]
-
-### Prompts Used
-[Exact prompts given to this tool]
-
-### AI Output/Results
-[What this tool provided]
-
-### How Output was Verified/Edited
-[How you verified/modified the output from this tool]
-
-### Multiple Iterations (if applicable)
-[Conversation flow if multiple interactions occurred]
-
-### Learning & Reflection
-[What you learned from using this tool]
+- Not applicable
 
 ---
 
 ## Overall Reflection
 
-[Provide an overall reflection on your AI usage for this assignment]
-[Consider: How did AI tools help your learning? What did you understand better? How did you ensure the work remained your own?]
-
+- It helped me in basic tasks, in which I knew how to do in C, but not yet in Rust.
 ---
 
 ## Notes
