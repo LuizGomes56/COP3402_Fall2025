@@ -301,45 +301,64 @@ int main() {
         switch (IR.OP) {
         case 1:
             *op_name = "LIT";
+            break;
         case 2:
             switch (IR.M) {
             case 0:
                 *op_name = "RTN";
+                break;
             case 1:
                 *op_name = "ADD";
+                break;
             case 2:
                 *op_name = "SUB";
+                break;
             case 3:
                 *op_name = "MUL";
+                break;
             case 4:
                 *op_name = "DIV";
+                break;
             case 5:
                 *op_name = "EQL";
+                break;
             case 6:
                 *op_name = "NEG";
+                break;
             case 7:
                 *op_name = "LSS";
+                break;
             case 8:
                 *op_name = "LEQ";
+                break;
             case 9:
                 *op_name = "GTR";
+                break;
             case 10:
                 *op_name = "GEQ";
+                break;
             }
         case 3:
             *op_name = "LOD";
+            break;
         case 4:
             *op_name = "STO";
+            break;
         case 5:
             *op_name = "CAL";
+            break;
         case 6:
             *op_name = "INC";
+            break;
         case 7:
             *op_name = "JMP";
+            break;
         case 8:
             *op_name = "JPC";
+            break;
         case 9:
             *op_name = "SYS";
+            break;
         }
 
         printf("%8s%8d%5d%5d%5d%5d", *op_name, IR.L, IR.M, PC, BP, SP);

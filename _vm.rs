@@ -117,6 +117,9 @@ fn main() {
         // Get PC back to its original value before starting the true execution of the program
         PC = PC_BASE;
 
+        let mut prev_SP_BP = None::<std::ops::RangeInclusive<usize>>;
+        let mut may_exit = false;
+
         // If index PC - 2 is not defined, program will crash on assignment IR.M
         // Due to an Index out of bounds error. PC and PC - 1 should be valid indexes as well
         while let Some(_) = PAS.get(PC - 2) {
@@ -146,6 +149,7 @@ fn main() {
                             SP = BP + 1;
                             BP = PAS[SP - 2];
                             PC = PAS[SP - 3];
+                            prev_SP_BP = None;
                         }
                         // Addition
                         1 => {
@@ -213,6 +217,7 @@ fn main() {
                 }
                 // Call procedure at code address a; create activation record
                 5 => {
+                    prev_SP_BP = Some(SP..=BP);
                     PAS[SP - 1] = base(BP, &mut IR.L);
                     PAS[SP - 2] = BP;
                     PAS[SP - 3] = PC;
@@ -238,6 +243,7 @@ fn main() {
                 9 => match IR.M {
                     // 1. Output integer value at top of stack; then pop.
                     1 => {
+                        println!("Output result is: {}", PAS[SP]);
                         SP += 1;
                     }
                     // 2. Read an integer from stdin and push it
@@ -258,7 +264,7 @@ fn main() {
                     }
                     // 3. Halt the program
                     3 => {
-                        std::process::exit(0);
+                        may_exit = true;
                     }
                     _ => unreachable!(),
                 },
@@ -300,10 +306,22 @@ fn main() {
             );
             // Remember that the stack grows downwards, so their order
             // of elements is also inverted
+
+            if let Some(range_value) = prev_SP_BP.clone() {
+                for i in range_value.rev() {
+                    print!("{:<2} ", PAS[i]);
+                }
+                if SP - 1 != BP {
+                    print!("| ");
+                }
+            }
             for i in (SP..=BP).rev() {
                 print!("{:<2} ", PAS[i]);
             }
             println!();
+            if may_exit {
+                std::process::exit(0);
+            }
         }
     }
 }
