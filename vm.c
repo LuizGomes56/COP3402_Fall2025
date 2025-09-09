@@ -332,7 +332,9 @@ int main(int argc, char *argv[]) {
             case 2: {
                 int value;
                 printf("%s", "Please Enter an Integer: ");
-                scanf("%d", &value);
+                int _ignore = scanf("%d", &value);
+                if (_ignore) {
+                }
                 PAS[SP - 1] = value;
                 SP -= 1;
                 break;

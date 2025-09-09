@@ -1,6 +1,8 @@
 target
 *.lock
 .vscode
+*.pdf 
+*.txt
 
 # Prerequisites
 *.d
