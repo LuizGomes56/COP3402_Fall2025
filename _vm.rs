@@ -74,7 +74,7 @@ fn main() {
         */
 
         // Read input.txt file
-        let input = std::fs::read_to_string("input.txt").unwrap();
+        let input = std::fs::read_to_string("test_procedure_in.txt").unwrap();
         let raw_instructions = input.split("\n").collect::<Vec<_>>();
         let instructions = raw_instructions
             .iter()
@@ -315,31 +315,75 @@ fn main() {
                 SP,
             );
 
-            // Create a copy of current AR and print everything until it reaches zero
-            let mut level = AR;
-            while level > 0 {
-                // Print the base stack (Stack zero)
-                // From the RTN instruction there's:
+            // Hold current stack frames until reach the main caller
+            let mut stack_frames: Vec<(usize, usize)> = Vec::new();
+
+            // Temporary variable to hold current BP and SP
+            let mut TBP = BP;
+            let mut TSP = SP;
+
+            // Number of stacks to print is AR + 1
+            // When AR = 0, we're printing only current stack for example
+            let mut stacks_to_print = AR + 1;
+
+            while stacks_to_print > 0 {
+                // Must be valid indexes
+                stack_frames.push((TSP, TBP));
+
+                // Check if dynamic link is valid
+                if TBP < 1 {
+                    break;
+                }
+
+                // Get previous BP
+                // Dynamic link (Caller's BP) is in PAS[BP - 1]
+                // This can be inferred from RTN
+                // RTN:
                 // SP = BP + 1;
                 // BP = PAS[SP - 2];
-                // So BP + 1 replaces SP, and PAS[BP - 1] is BP
-                // So this is the base record (Main AR)
-                for i in ((BP + 1)..=(PAS[BP - 1])).rev() {
-                    print!("{:<2} ", PAS[i]);
+                // If SP is BP + 1, and the caller's BP is in PAS[SP - 2],
+                // then, the caller's BP is in PAS[BP - 1] in fact
+                let PBP = PAS[TBP - 1];
+                if PBP == 0 {
+                    // If it is zero, then the root was reached (No Dynamic Link!)
+                    break;
                 }
-                // If SP - 1 is equal to BP, then there's nothing really in that AR
-                if SP - 1 != BP {
-                    print!("| ");
-                }
-                // Avoid infinite loop
-                level -= 1;
+
+                // From the same RTN specifications provided in the assignment, we can infer
+                // the previous SP (was BP + 1)
+                let PSP = TBP + 1;
+
+                // Update temporary BP and SP so we know what to print
+                TBP = PBP;
+                TSP = PSP;
+
+                stacks_to_print -= 1;
             }
 
-            // Remember that the stack grows downwards, so their order
-            // of elements is also inverted
-            // This prints the contents of the current AR
-            for i in (SP..=BP).rev() {
-                print!("{:<2} ", PAS[i]);
+            // The assignment want to print the current stack the last, and
+            // the main's stack frame the first, so order has to be reversed
+            stack_frames.reverse();
+
+            for i in 0..stack_frames.len() {
+                // Stack frames contain SP and BP in this order on them
+                let (stack_sp, stack_bp) = stack_frames[i];
+                // If SP < BP the print function will fail (Invalid range)
+                if stack_sp > stack_bp {
+                    continue;
+                }
+                // Stack grow downwards, so the order of iteration is reversed, inclusive
+                for j in (stack_sp..=stack_bp).rev() {
+                    print!("{:<2} ", PAS[j]);
+                }
+                // Check if the next element exist, and will print at least one element
+                // I had to do this to avoid adding bars when nothing would be printed out
+                let may_add_bars = stack_frames[i + 1..]
+                    .iter()
+                    .any(|(next_sp, next_bp)| next_sp <= next_bp);
+                // Add the bars if we have more than one stack to print, so they're separated
+                if may_add_bars {
+                    print!("| ");
+                }
             }
 
             println!();
