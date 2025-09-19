@@ -1,5 +1,5 @@
-target
-*.lock
+**/target
+**.lock
 .vscode
 *.pdf 
 *.txt
