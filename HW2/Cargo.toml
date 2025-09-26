@@ -3,5 +3,9 @@ name = "HW2"
 version = "0.1.0"
 edition = "2024"
 
-[lib]
-path = "prev.rs"
+[[bin]]
+name = "lex"
+path = "lex.rs"
+
+[dependencies]
+regex = "1"
