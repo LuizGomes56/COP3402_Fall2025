@@ -24,44 +24,48 @@ GPT-5
 September 25, 2025
 
 ### Specific Parts of Assignment
-[Describe exactly which portions of your work involved AI assistance]
-[e.g., Code debugging for functions calculateHash() and validateInput(); Literature review for Section 2.3; Writing assistance for conclusion paragraph; Algorithm optimization for sorting function]
+- Creation of the two base regexes to capture words, symbols, and comments.
+- Translating Rust to C
+- Usage of regex.h and correct function signatures from it
 
 ### Prompts Used
-[Provide the exact prompts/questions you asked the AI tool]
-[e.g., "Help me debug this Python function that calculates SHA-256 hashes"]
-[e.g., "Explain the difference between symmetric and asymmetric encryption"]
-[e.g., "Review this code for security vulnerabilities"]
+1. Generate regex pattern that matches /* anything here, with no exceptions */
+2. Using regex crate, in Rust, create the regex pattern that returns any string that follows the regex [a-zA-Z][a-z-A-Z0-9]* and accept the following tokens separately: + - * / = <> < <= > >= ( ) , ; . :=
 
 ### AI Output/Results
-[Describe what the AI tool provided in response]
-[e.g., AI provided corrected code with explanations of the logic errors]
-[e.g., AI generated a comparison table of encryption methods]
-[e.g., AI suggested using input validation and error handling]
+1. 
+```rs
+let re =
+    Regex::new(r"(?s)/\*.*?\*/").unwrap();
+```
+2. 
+```rs
+Regex::new(r"[A-Za-z][A-Za-z0-9]*|\d+|:=|<=|>=|<>|\+|-|\*|/|=|<|>|\(|\)|,|;|\.").unwrap()
+```
 
 ### How Output was Verified/Edited
-[Explain how you verified accuracy, made modifications, or tested the AI output]
-[e.g., Tested the corrected code with sample inputs; Verified encryption explanations against textbook; Implemented suggested security measures and tested functionality]
+Output verification was done with the following code I produced:
+```rs
+general_regex
+    .find_iter(&content)
+    .collect::<Vec<_>>()
+    .iter()
+    .enumerate()
+    .for_each(|(i, token)| println!("{i}: {}", token.as_str()));
+```
+It goes over all matches that such regex found, enumerates and prints to the console. From this output, I verified if all necessary tokens were included on it, and they were. However, many empty strings were captured by the regex, so I had to remove them.
 
 ### Multiple Iterations (if applicable)
-[If you used AI tools multiple times, provide a dialogue/conversation summary]
-[e.g., First asked for algorithm explanation, then requested code example, finally asked for optimization suggestions]
-[e.g., Had 3-turn conversation about debugging process: initial problem → AI suggestion → follow-up clarification]
+First I asked for a regex pattern that matches all symbols, and the regex provided in the assignment details: [a-zA-Z][a-z-A-Z0-9]*. Next prompt I asked for another regex, to match comments so I can remove them before tokenization. After these prompts, I took time to complete the Rust code, and finally started a new conversation to ask the AI to translate my code to C, and adapt the usage to the regex.h header
 
 ### Learning & Reflection
-[Reflect on what you learned and how the AI assistance contributed to your understanding]
-[e.g., I learned about proper error handling techniques and improved my debugging skills]
-[e.g., Understanding of cryptographic concepts was enhanced through AI explanations]
-
-### Learning & Reflection
-[What you learned from using this tool]
+AI helped me understand regex patterns and translate Rust code to C, which saved time for myself, given that C is much more verbose and its libraries are not intuitive, making it highly inneficient for this assignment
 
 ---
 
 ## Overall Reflection
-
-[Provide an overall reflection on your AI usage for this assignment]
-[Consider: How did AI tools help your learning? What did you understand better? How did you ensure the work remained your own?]
+AI was very useful in translating Rust code to C, I could visualize how part of the high level logic from Rust is translated to C, and how bad and weak is GCC, which compiles even when the arguments to a function are incorrect, making me lose a lot of time debugging code, especially because the only way to compile it is in Eustis since the regex.h header is not available on windows
+- C is a bad language choice for this assignment. In general, manipulating strings in C is hard by iteself, especially when dealing with inputs that can contain Unicode/UTF-8 characters
 
 ---
 

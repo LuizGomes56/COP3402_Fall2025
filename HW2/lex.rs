@@ -3,8 +3,14 @@
 // ! and for simplicity I've downloaded crate "regex"; This easier and better than
 // ! calling "regex.h" directly from C
 
+use std::fmt::Display;
+
 /// Cargo.toml
 /// ```toml
+/// [[bin]]
+/// name = "lex"
+/// path = "lex.rs"
+///
 /// [dependencies]
 /// regex = "1"
 /// ```
@@ -57,14 +63,14 @@ fn main() {
     follows the regex [a-zA-Z][a-z-A-Z0-9]* and accept the following tokens separately:
     + - * / = <> < <= > >= ( ) , ; . :=
     */
-    let general_regex = unsafe {
+    let general_regex =
         Regex::new(r"[A-Za-z][A-Za-z0-9]*|\d+|:=|<=|>=|<>|\+|-|\*|/|=|<|>|\(|\)|,|;|\.")
-            .unwrap_unchecked()
-    };
+            .expect("Couldn't create general regex pattern");
     // I copied the [A-Za-z][A-Za-z0-9]* from the generated regex pattern
     // it is the adapted regex pattern provided in the assignment
     // (the provided one does not compile)
-    let identifier_regex = unsafe { Regex::new(r"[A-Za-z][A-Za-z0-9]*").unwrap_unchecked() };
+    let identifier_regex =
+        Regex::new(r"[A-Za-z][A-Za-z0-9]*").expect("Couldn't create identifier regex pattern");
 
     let file_path = std::env::args()
         .nth(1)
@@ -84,7 +90,8 @@ fn main() {
     // since there will be no tokenization of it, then it does not need to go to the regex
     // ChatGPT 5 Thinking:
     // - Generate regex pattern that matches /* anything here, with no exceptions */
-    let comment_regex = unsafe { Regex::new(r"(?s)/\*.*?\*/").unwrap_unchecked() };
+    let comment_regex =
+        Regex::new(r"(?s)/\*.*?\*/").expect("Couldn't create comment regex pattern");
     let content_without_comments = comment_regex.replace_all(&content, "");
 
     let tokens = general_regex
@@ -96,7 +103,7 @@ fn main() {
         content, "lexeme", "token type"
     );
 
-    // Will hold the enum TokenType and some metadata in string format.
+    // Will hold the enum TokenType and some token_data in string format.
     // This will be used to print the lexeme table and the token list
     let mut result = Vec::<(TokenType, String)>::new();
 
@@ -145,7 +152,7 @@ fn main() {
                     _ => None,
                 };
                 match base_token_type {
-                    // If it is a hardcoded defined token, metadata is just it as String
+                    // If it is a hardcoded defined token, token_data is just it as String
                     Some(token_type) => (token_type, token_str.to_string()),
                     // If there are Number definitions or Identifiers, it is necessary to check
                     None => {
@@ -178,32 +185,36 @@ fn main() {
         }
     }
 
-    for (token_type, metadata) in result.iter() {
+    for (token_type_enum, token_data) in result.iter() {
         // Number too long error was placed as Skip; so it is necessary to verify if
-        // metadata is a number and fell there. If it did, then print in the token_type
+        // token_data is a number and fell there. If it did, then print in the token_type
         // field that the number is too long, and the value itself
-        if *token_type == TokenType::Skip && metadata.len() > 5 && metadata.parse::<i32>().is_ok() {
-            println!("{:<10}{:<10}", metadata, "Number too long");
-        }
-        // token_type is copy, dereference it gives itself without move issues
-        // token_type is an enum valid with #[repr(inttype)]
-        // in this case: represented as a single byte (< 255 variants),
-        // so it can be converted directly to an integer by casting
-        else {
-            println!("{:<10}{:<10}", metadata, *token_type as usize);
+        let token_type: Box<dyn Display> = if *token_type_enum == TokenType::Skip
+            && token_data.len() > 5
+            && token_data.parse::<i32>().is_ok()
+        {
+            Box::new("Number too long")
+        } else {
+            // token_type is copy, dereference it gives itself without move issues
+            // token_type is an enum valid with #[repr(inttype)]
+            // in this case: represented as a single byte (< 255 variants),
+            // so it can be converted directly to an integer by casting
+            Box::new(*token_type_enum as usize)
         };
+
+        println!("{:<10}{:<10}", token_data, token_type);
     }
 
     println!("\nToken List:\n");
 
-    for (token_type, metadata) in result.iter() {
+    for (token_type, token_data) in result.iter() {
         print!(
             "{} ",
             match token_type {
-                // Literals and identifiers are printed with their metadata
+                // Literals and identifiers are printed with their token_data
                 // any other ones are just the numeric representation of token_type
                 TokenType::Ident | TokenType::Number => {
-                    format!("{} {}", *token_type as usize, metadata)
+                    format!("{} {}", *token_type as usize, token_data)
                 }
                 _ => format!("{}", *token_type as usize),
             }
