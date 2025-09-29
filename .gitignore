@@ -3,6 +3,8 @@
 .vscode
 *.pdf 
 *.txt
+*.jplag
+*.jar
 
 # Prerequisites
 *.d
