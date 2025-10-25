@@ -383,6 +383,26 @@ bool is_all_digits(char *s) {
     return true;
 }
 
+// there were several tokens in the lexeme table that were printed as:
+//     1
+//    1  or similar (1 = Skip)
+// so invisible characters were being printed and set as skip, but they should be
+// removed instead of "skipped", so this function serve to not print a string if
+// it is composed exclusively of invisible characters
+bool has_visible_char(char *s) {
+    // s can't be null since it will be dereferenced
+    if (!s)
+        return false;
+    for (; *s; s++) {
+        // if there's at least one visible character, return that it's true
+        if (!isspace((unsigned char)*s)) {
+            return true;
+        }
+    }
+    // if there were only whitespaces or \t, \n, etc
+    return false;
+}
+
 int main(int argc, char **argv) {
     // argv[0] is program execution path, and argv[1] must exist so the
     // input file path is passed as argumnet. argc < 2 mean that there are no
@@ -549,7 +569,7 @@ int main(int argc, char **argv) {
             // check if token->lexeme is empty, if it is, do nothing
             // this is because this C regex was not perfectly translated from Rust and is capturing
             // characters that were not intended to be in the string
-            if (strlen(token->lexeme) == 0) {
+            if (!has_visible_char(token->lexeme)) {
                 continue;
             }
 
@@ -571,7 +591,7 @@ int main(int argc, char **argv) {
             break;
         default:
             // avoid printing 1's that were not intended to be printed (Skip)
-            if (strlen(token->lexeme) == 0) {
+            if (!has_visible_char(token->lexeme)) {
                 continue;
             }
             // Print just the numeric definition of that token
