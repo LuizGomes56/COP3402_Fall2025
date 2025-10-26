@@ -1,37 +1,16 @@
 #![allow(non_snake_case)]
 
-/*
-<program> ::= <block> "."
-<block> ::= <const-declaration> <var-declaration> <statement>
-<const-declaration> ::= [ "const" <ident> "=" <number>
-{"," <ident> "=" <number>} ";"]
-<var-declaration> ::= [ "var" <ident> {"," <ident>} ";"]
-<statement> ::=
-[
-<ident> ":=" <expression>
-| "begin" <statement> { ";" <statement> } "end"
-| "if" <condition> "then" <statement> "fi"
-| "while" <condition> "do" <statement>
-| "read" <ident>
-| "write" <expression>
-| empty
-]
-<condition> ::= "even" <expression>
-| <expression> <rel-op> <expression>
-<expression> ::= <term> { ("+" | "-") <term> }
-<term> ::= <factor> { ("*" | "/" ) <factor> }
-<factor> ::=
-<ident>
-| <number>
-| "(" <expression> ")"
-<rel-op> ::= "=" | "<>" | "<" | "<=" | ">" | ">="
-<number> ::= <digit> { <digit> }
-<ident> ::= <letter> { <letter> | <digit> }
-<digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
-<letter> ::= "a" | "b" | ... | "z" | "A" | "B" | ... | "Z"
-*/
+use std::{
+    fmt::Display,
+    ops::{Deref, DerefMut},
+};
 
-use std::fmt::Display;
+macro_rules! throw {
+    ($code:expr) => {{
+        // panic!("{}", throw($code));
+        MayFail::Err(throw($code).into())
+    }};
+}
 
 fn throw(code: i32) -> &'static str {
     match code {
@@ -63,15 +42,12 @@ enum TokenType {
     Minus,
     Mult,
     Slash,
-    Mod,
     Eq,
     Neq,
     Les,
     Leq,
     Gtr,
     Geq,
-    Even,
-    Odd,
     Lparent,
     Rparent,
     Comma,
@@ -92,19 +68,14 @@ enum TokenType {
     Write,
     Read,
     Else,
+    Even,
+    Odd,
+    Mod,
 }
 
 struct Register {
-    /// The operation code specifying the instruction to execute
-    /// (LIT, OPR, LOD, STO, CAL, INC, JMP, JPC, SYS).
     OP: Instruction,
-
-    /// The lexicographical level for instructions that access variables in other activation records.
     L: usize,
-
-    /// A parameter whose meaning depends on the opcode. It may be a literal value, an
-    /// address in the text segment, an offset within an activation record or a sub-opcode for
-    /// arithmetic and logical operations
     M: usize,
 }
 
@@ -138,7 +109,7 @@ enum Instruction {
 
 struct PCode(Vec<Register>);
 
-impl std::ops::Deref for PCode {
+impl Deref for PCode {
     type Target = Vec<Register>;
 
     fn deref(&self) -> &Self::Target {
@@ -146,7 +117,7 @@ impl std::ops::Deref for PCode {
     }
 }
 
-impl std::ops::DerefMut for PCode {
+impl DerefMut for PCode {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -209,6 +180,32 @@ impl SymbolTable {
         }
     }
 
+    pub fn print(&self) {
+        println!(
+            "Symbol Table: \n\n{kind:<6}|{name:<14}|{value:<6}|{level:<6}|{addr:<8}|{mark:<5}\n",
+            kind = "Kind",
+            name = "Name",
+            value = "Value",
+            level = "Level",
+            addr = "Address",
+            mark = "Mark"
+        );
+        for _ in 0..51 {
+            print!("-");
+        }
+        for symbol in &self.table {
+            println!(
+                "{kind:<6}|{name:<14}|{value:<6}|{level:<6}|{addr:<8}|{mark:<5}\n",
+                kind = symbol.kind as usize,
+                name = symbol.name,
+                value = symbol.value,
+                level = symbol.level,
+                addr = symbol.addr,
+                mark = symbol.mark
+            );
+        }
+    }
+
     fn has_symbol(&self, name: &str) -> bool {
         self.table.iter().any(|symbol| symbol.name == name)
     }
@@ -250,22 +247,26 @@ impl SymbolTable {
 
     // In C translation, this function will never throw an error.
     fn push_var(&mut self, name: String) -> MayFail<usize> {
-        self.find_index_or_throw(&name, 3)?;
-        let current_offset = self.table.len();
-        self.push_symbol(Symbol {
-            kind: SymbolKind::Var,
-            name,
-            addr: self.addr,
-            value: 0,
-            level: 0,
-            mark: false,
-        });
-        self.addr += 2;
-        Ok(current_offset + 1)
+        match self.find_index_or_throw(&name, 3) {
+            Err(_) => {
+                let current_offset = self.table.len();
+                self.push_symbol(Symbol {
+                    kind: SymbolKind::Var,
+                    name,
+                    addr: self.addr,
+                    value: 0,
+                    level: 0,
+                    mark: false,
+                });
+                self.addr += 2;
+                Ok(current_offset + 1)
+            }
+            Ok(_) => throw!(3),
+        }
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum SymbolKind {
     Const,
     Var,
@@ -281,7 +282,7 @@ struct Symbol {
     mark: bool,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Token {
     kind: TokenType,
     meta: Option<String>,
@@ -333,6 +334,10 @@ impl From<&str> for Token {
         let mut meta = None;
         let parts = value.trim().split(" ");
         for (index, part) in parts.enumerate() {
+            if part.len() > 11 {
+                continue;
+            }
+
             match index {
                 0 => kind = unsafe { std::mem::transmute(part.parse::<u8>().unwrap()) },
                 1 => meta = Some(part.to_string()),
@@ -351,7 +356,7 @@ struct TokenStream {
     pcode: PCode,
 }
 
-impl std::ops::Deref for SymbolTable {
+impl Deref for SymbolTable {
     type Target = Vec<Symbol>;
 
     fn deref(&self) -> &Self::Target {
@@ -359,7 +364,7 @@ impl std::ops::Deref for SymbolTable {
     }
 }
 
-impl std::ops::DerefMut for SymbolTable {
+impl DerefMut for SymbolTable {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.table
     }
@@ -381,19 +386,27 @@ impl TokenStream {
             .ok_or(format!("Index {iteration} does not exist in TokenStream").into())
     }
 
-    fn get_curr_token(&self) -> &Token {
+    fn token(&self) -> &Token {
+        if self.iteration == self.tokens.len() {
+            panic!("TokenStream is out of tokens");
+        }
         self.get_token(self.iteration).unwrap()
     }
 
-    fn get_curr_kind(&self) -> TokenType {
-        self.get_curr_token().kind
+    fn kind(&self) -> TokenType {
+        self.token().kind
     }
 
     fn program(&mut self) -> MayFail {
         match self.tokens.ends_with(&[TokenType::Period.into()]) {
-            false => Err(throw(1).into()),
+            false => throw!(1),
             true => self.block(),
         }
+    }
+
+    fn next(&mut self) -> TokenType {
+        self.iteration += 1;
+        self.kind()
     }
 
     fn block(&mut self) -> MayFail {
@@ -404,48 +417,48 @@ impl TokenStream {
     }
 
     fn const_declaration(&mut self) -> MayFail {
-        if self.get_curr_kind() == TokenType::Const {
-            self.iteration += 1;
+        if self.token() == TokenType::Const {
+            loop {
+                let token = self.next();
 
-            while self.get_curr_kind() == TokenType::Comma {
-                let next_token = self.get_token(self.iteration + 1)?;
-
-                if next_token != TokenType::Ident {
-                    return Err(throw(2).into());
+                if token != TokenType::Ident {
+                    return throw!(2);
                 }
 
-                let ident_name = next_token.get_meta()?;
+                let ident_name = self.token().get_meta()?;
 
                 if self.symbol_table.has_symbol(ident_name) {
-                    return Err(throw(3).into());
+                    return throw!(3);
                 }
 
                 let ident_offset = self.symbol_table.push_const(ident_name.clone(), 0)?;
+                let token = self.next();
 
-                if self.get_token(self.iteration + 2)? != TokenType::Eq {
-                    return Err(throw(4).into());
+                if token != TokenType::Eq {
+                    return throw!(4);
                 }
 
-                let ident_value = self.get_token(self.iteration + 3)?.clone();
+                let token = self.next();
 
-                if &ident_value != TokenType::Number {
-                    return Err(throw(5).into());
+                if token != TokenType::Number {
+                    return throw!(5);
                 }
 
-                let symbol = self.symbol_table.get_mut(ident_offset).ok_or(format!(
-                    "Attempted to get invalid index {ident_offset} from SymbolTable"
-                ))?;
+                let ident_value = self.token().get_number()?;
+                self.symbol_table[ident_offset].value = ident_value;
 
-                symbol.value = ident_value.get_number()?;
+                self.next();
 
-                self.iteration += 4;
+                if self.token() != TokenType::Comma {
+                    break;
+                }
             }
 
-            if self.get_curr_token() != TokenType::Semicolon {
-                return Err(throw(6).into());
+            if self.token() != TokenType::Semicolon {
+                return throw!(6);
             }
 
-            self.iteration += 1;
+            self.next();
         }
         Ok(())
     }
@@ -453,85 +466,106 @@ impl TokenStream {
     fn var_declaration(&mut self) -> MayFail<usize> {
         let mut count = 0;
 
-        if self.get_curr_kind() == TokenType::Var {
-            self.iteration += 1;
-
-            while self.get_curr_kind() == TokenType::Comma {
+        if self.token() == TokenType::Var {
+            loop {
                 count += 1;
-                let next_token = self.get_token(self.iteration + 1)?;
 
-                if next_token != TokenType::Ident {
-                    return Err(throw(2).into());
+                let token = self.next();
+
+                if token != TokenType::Ident {
+                    return throw!(2);
                 }
 
-                let ident_name = next_token.get_meta()?;
+                let ident_name = self.token().get_meta()?;
 
                 if self.symbol_table.has_symbol(ident_name) {
-                    return Err(throw(3).into());
+                    return throw!(3);
                 }
 
                 self.symbol_table.push_var(ident_name.clone())?;
-                self.iteration += 2;
+                self.next();
+
+                if self.token() != TokenType::Comma {
+                    break;
+                }
             }
 
-            if self.get_curr_token() != TokenType::Semicolon {
-                return Err(throw(6).into());
+            if self.token() != TokenType::Semicolon {
+                return throw!(6);
             }
         }
+
+        self.next();
 
         Ok(count)
     }
 
     fn statement(&mut self) -> MayFail {
-        let current_token = self.get_curr_kind();
-
-        match current_token {
+        match self.kind() {
             TokenType::Ident => {
                 let symbol_index = self
                     .symbol_table
-                    .find_index_or_throw(self.get_curr_token().get_meta()?, 7)?;
+                    .find_index_or_throw(self.token().get_meta()?, 7)?;
 
                 if self.symbol_table.get_index(symbol_index)?.kind != SymbolKind::Var {
-                    return Err(throw(8).into());
+                    return throw!(8);
                 }
 
-                if self.get_token(self.iteration + 1)?.kind != TokenType::Becomes {
-                    return Err(throw(9).into());
+                let token = self.next();
+
+                if token != TokenType::Becomes {
+                    return throw!(9);
                 }
 
-                self.iteration += 2;
+                self.next();
                 self.expression()?;
-
                 self.emit(
                     Instruction::STO,
                     self.symbol_table.get_index(symbol_index)?.addr,
                 );
             }
             TokenType::Begin => {
-                self.iteration += 1;
-
-                while self.get_curr_kind() == TokenType::Semicolon {
-                    self.iteration += 1;
+                loop {
+                    self.next();
                     self.statement()?;
+                    if self.token() != TokenType::Semicolon {
+                        break;
+                    }
                 }
 
-                if self.get_curr_kind() != TokenType::End {
-                    return Err(throw(10).into());
+                if self.token() != TokenType::End {
+                    return throw!(10);
                 }
 
-                self.iteration += 1;
+                self.next();
+            }
+            TokenType::If => {
+                self.next();
+                self.condition()?;
+
+                let jpc_index = self.iteration;
+                self.emit(Instruction::JPC, 0);
+
+                if self.token() != TokenType::Then {
+                    return throw!(11);
+                }
+
+                self.next();
+                self.statement()?;
+                self.pcode[jpc_index].M = self.iteration;
             }
             TokenType::While => {
-                self.iteration += 1;
+                self.next();
 
                 let loop_index = self.iteration;
                 self.condition()?;
 
-                if self.get_curr_token() != TokenType::Do {
-                    return Err(throw(12).into());
+                if self.token() != TokenType::Do {
+                    return throw!(12);
                 }
 
-                self.iteration += 1;
+                self.next();
+
                 let jpc_index = self.iteration;
 
                 self.emit(Instruction::JPC, usize::MAX);
@@ -541,21 +575,21 @@ impl TokenStream {
                 self.pcode[jpc_index].M = self.iteration;
             }
             TokenType::Read => {
-                self.iteration += 1;
+                self.next();
 
-                if self.get_curr_token() != TokenType::Ident {
-                    return Err(throw(2).into());
+                if self.token() != TokenType::Ident {
+                    return throw!(2);
                 }
 
                 let symbol_index = self
                     .symbol_table
-                    .find_index_or_throw(self.get_curr_token().get_meta()?, 7)?;
+                    .find_index_or_throw(self.token().get_meta()?, 7)?;
 
                 if self.symbol_table.get_index(symbol_index)?.kind != SymbolKind::Var {
-                    return Err(throw(8).into());
+                    return throw!(8);
                 }
 
-                self.iteration += 1;
+                self.next();
                 self.emit(Instruction::READ, usize::MAX);
                 self.emit(
                     Instruction::STO,
@@ -563,50 +597,51 @@ impl TokenStream {
                 );
             }
             TokenType::Write => {
-                self.iteration += 1;
+                self.next();
                 self.expression()?;
                 self.emit(Instruction::WRITE, usize::MAX);
             }
-            _ => unreachable!(
-                "Statement received an unknown token type: TokenType::{current_token:?}"
-            ),
+            token => unreachable!("Statement received an unknown token type: TokenType::{token:?}"),
         };
 
         Ok(())
     }
 
     fn condition(&mut self) -> MayFail {
-        let kind = self.get_curr_kind();
-
-        if kind != TokenType::Odd {
+        if self.token() != TokenType::Odd {
+            self.next();
             self.expression()?;
-        }
+            self.emit(Instruction::ODD, 0);
+            Ok(())
+        } else {
+            self.expression()?;
 
-        macro_rules! assert_kind {
-            ($(($token:ident, $instr:ident)),*) => {
-                match kind {
-                    $(
-                        TokenType::$token => {
-                            self.iteration += 1;
-                            self.expression()?;
-                            self.emit(Instruction::$instr, usize::MAX);
-                            Ok(())
-                        }
-                    )*
-                    _ => Err(throw(13).into())
-                }
-            };
-        }
+            macro_rules! assert_kind {
+                ($(($token:ident, $instr:ident)),*) => {
+                    match self.kind() {
+                        $(
+                            TokenType::$token => {
+                                self.next();
+                                self.expression()?;
+                                self.emit(Instruction::$instr, usize::MAX);
+                                Ok(())
+                            }
+                        )*
+                        _ => throw!(15)
+                    }
+                };
+            }
 
-        assert_kind![
-            (Odd, ODD),
-            (Eq, EQL),
-            (Neq, NEG),
-            (Les, LSS),
-            (Leq, LEQ),
-            (Gtr, GTR),
-            (Geq, GEQ)
-        ]
+            assert_kind![
+                (Odd, ODD),
+                (Eq, EQL),
+                (Neq, NEG),
+                (Les, LSS),
+                (Leq, LEQ),
+                (Gtr, GTR),
+                (Geq, GEQ)
+            ]
+        }
     }
 
     fn expression(&mut self) -> MayFail {
@@ -615,12 +650,12 @@ impl TokenStream {
                 while matches!($kind, TokenType::Minus | TokenType::Plus) {
                     match $kind {
                         TokenType::Minus => {
-                            self.iteration += 1;
+                            self.next();
                             self.term()?;
                             self.emit(Instruction::SUB, 0);
                         }
                         TokenType::Plus => {
-                            self.iteration += 1;
+                            self.next();
                             self.term()?;
                             self.emit(Instruction::ADD, 0);
                         }
@@ -630,17 +665,17 @@ impl TokenStream {
             };
         }
 
-        match self.get_curr_kind() {
+        match self.kind() {
             TokenType::Minus => {
-                self.iteration += 1;
+                self.next();
                 self.term()?;
                 self.emit(Instruction::NEG, 0);
-                let kind = self.get_curr_kind();
+                let kind = self.kind();
                 match_kind!(kind);
             }
             kind => {
                 if kind == TokenType::Plus {
-                    self.iteration += 1;
+                    self.next();
                 }
                 self.term()?;
                 match_kind!(kind);
@@ -652,7 +687,7 @@ impl TokenStream {
     fn term(&mut self) -> MayFail {
         self.factor()?;
 
-        let kind = self.get_curr_kind();
+        let kind = self.kind();
 
         macro_rules! match_kind {
             ($(($token:ident, $instr:ident)),*) => {
@@ -660,7 +695,7 @@ impl TokenStream {
                     match kind {
                         $(
                             TokenType::$token => {
-                                self.iteration += 1;
+                                self.next();
                                 self.factor()?;
                                 self.emit(Instruction::$instr, 0);
                             }
@@ -675,61 +710,39 @@ impl TokenStream {
     }
 
     fn factor(&mut self) -> MayFail {
-        match self.get_curr_kind() {
+        match self.kind() {
             TokenType::Ident => {
                 let symbol_index = self
                     .symbol_table
-                    .find_index_or_throw(self.get_curr_token().get_meta()?, 7)?;
+                    .find_index_or_throw(self.token().get_meta()?, 7)?;
 
-                if self.symbol_table.get_index(symbol_index)?.kind == SymbolKind::Const {
-                    self.emit(
-                        Instruction::LIT,
-                        self.symbol_table.get_index(symbol_index)?.value,
-                    );
+                let symbol = self.symbol_table.get_index(symbol_index)?;
+
+                if symbol.kind == SymbolKind::Const {
+                    self.emit(Instruction::LIT, symbol.value);
                 } else {
-                    self.emit(
-                        Instruction::LOD,
-                        self.symbol_table.get_index(symbol_index)?.addr,
-                    );
+                    self.emit(Instruction::LOD, symbol.addr);
                 }
 
-                self.iteration += 1;
+                self.next();
             }
             TokenType::Number => {
                 self.emit(Instruction::LIT, usize::MAX);
+                self.next();
             }
             TokenType::Lparent => {
-                self.iteration += 1;
+                self.next();
                 self.expression()?;
 
-                if self.get_curr_kind() != TokenType::Rparent {
-                    return Err(throw(14).into());
+                if self.kind() != TokenType::Rparent {
+                    return throw!(14);
                 }
 
-                self.iteration += 1;
+                self.next();
             }
-            _ => return Err(throw(15).into()),
+            _ => return throw!(15),
         }
-        Ok(())
-    }
 
-    fn rel_op(&mut self) -> MayFail {
-        Ok(())
-    }
-
-    fn number(&mut self) -> MayFail {
-        Ok(())
-    }
-
-    fn ident(&mut self) -> MayFail {
-        Ok(())
-    }
-
-    fn digit(&mut self) -> MayFail {
-        Ok(())
-    }
-
-    fn letter(&mut self) -> MayFail {
         Ok(())
     }
 }
@@ -754,17 +767,26 @@ impl PartialEq<TokenType> for &Token {
 fn main() -> MayFail {
     let file = std::fs::read_to_string("tokens.txt")?;
 
-    let token_stream = TokenStream::from(
-        file.lines()
-            .into_iter()
-            .map(Token::from)
-            .collect::<Vec<_>>(),
-    );
+    let tokens = file
+        .lines()
+        .into_iter()
+        .filter(|line| !line.is_empty() && !line.chars().all(char::is_whitespace))
+        .map(Token::from)
+        .collect::<Vec<_>>();
+
+    println!("Tokens: {tokens:#?}");
+
+    let mut token_stream = TokenStream::from(tokens);
+
+    token_stream.program().unwrap();
 
     println!(
         "Assembly Code:\n\n{:>4}{:>5}{:>3}{:>3}",
         "Line", "OP", "L", "M"
     );
+
+    token_stream.pcode.print();
+    token_stream.symbol_table.print();
 
     token_stream.pcode.finish()
 }

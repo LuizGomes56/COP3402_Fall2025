@@ -209,7 +209,7 @@ fn main() {
 
     for (token_type, token_data) in result.iter() {
         print!(
-            "{} ",
+            "{} \n",
             match token_type {
                 // Literals and identifiers are printed with their token_data
                 // any other ones are just the numeric representation of token_type
