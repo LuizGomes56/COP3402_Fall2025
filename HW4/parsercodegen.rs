@@ -2,13 +2,14 @@
 
 use std::{
     fmt::Display,
+    iter::once,
     ops::{Deref, DerefMut},
 };
 
 macro_rules! throw {
-    ($code:expr) => {
+    ($code:expr) => {{
         MayFail::Err(throw($code).into())
-    };
+    }};
 }
 
 macro_rules! impl_usize_cast {
@@ -136,7 +137,7 @@ struct Register {
 
 #[derive(Clone, Copy, Debug)]
 enum Instruction {
-    LIT = 1,
+    LIT,
     OPR,
     LOD,
     STO,
@@ -182,8 +183,12 @@ impl Display for PCode {
             "Assembly Code:\n\n{:>4}{:>8}{:>8}{:>8}\n",
             "Line", "OP", "L", "M"
         );
-        let result = self
-            .iter()
+        let code = self.iter().chain(once(&Register {
+            OP: Instruction::SYS,
+            L: 0,
+            M: Syscall::Halt as usize,
+        }));
+        let result = code
             .enumerate()
             .map(|(index, register)| {
                 let op = format!("{:?}", register.OP);
@@ -442,9 +447,7 @@ impl TokenStream {
         self.const_declaration()?;
         let number_of_vars = self.var_declaration()?;
         self.emit(Instruction::INC, number_of_vars + 3);
-        self.statement()?;
-        self.emit(Instruction::SYS, Syscall::Halt);
-        Ok(())
+        self.statement()
     }
 
     fn const_declaration(&mut self) -> MayFail {
