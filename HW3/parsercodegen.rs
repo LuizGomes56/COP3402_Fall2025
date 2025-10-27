@@ -1,7 +1,8 @@
-#![allow(non_snake_case)]
+#![allow(non_snake_case, dead_code)]
 
 use std::{
     fmt::Display,
+    iter::once,
     ops::{Deref, DerefMut},
 };
 
@@ -29,8 +30,44 @@ fn throw(code: i32) -> &'static str {
         13 => "Error: condition must contain comparison operator",
         14 => "Error: right parenthesis must follow left parenthesis",
         15 => "Error: arithmetic equations must contain operands, parentheses, numbers, or symbols",
+        16 => "Error: if must have a condition and be followed by fi",
         _ => unreachable!("Unknown error kind"),
     }
+}
+
+macro_rules! impl_usize_cast {
+    ($($enum:ty),*) => {
+        $(
+            impl From<$enum> for usize {
+                fn from(value: $enum) -> Self {
+                    value as usize
+                }
+            }
+        )*
+    };
+}
+
+impl_usize_cast!(TokenType, OprCode, Syscall);
+
+enum OprCode {
+    RTN,
+    ADD,
+    SUB,
+    MUL,
+    DIV,
+    EQL,
+    NEG,
+    LSS,
+    LEQ,
+    GTR,
+    GEQ,
+    EVEN,
+}
+
+enum Syscall {
+    Write = 1,
+    Read,
+    Halt,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -69,8 +106,6 @@ enum TokenType {
     Read,
     Else,
     Even,
-    Odd,
-    Mod,
 }
 
 struct Register {
@@ -79,23 +114,10 @@ struct Register {
     M: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 enum Instruction {
     LIT,
-    RTN,
-    ADD,
-    SUB,
-    MUL,
-    DIV,
-    MOD,
-    EQL,
-    NEG,
-    LSS,
-    LEQ,
-    GTR,
-    GEQ,
-    EVEN,
-    ODD,
+    OPR,
     LOD,
     STO,
     CAL,
@@ -103,8 +125,6 @@ enum Instruction {
     JMP,
     JPC,
     SYS,
-    READ,
-    WRITE,
 }
 
 struct PCode(Vec<Register>);
@@ -156,12 +176,16 @@ impl Display for PCode {
             "Assembly Code:\n\n{:>4}{:>8}{:>8}{:>8}\n",
             "Line", "OP", "L", "M"
         );
-        let result = self
-            .0
-            .iter()
+        let code = self.0.iter().chain(once(&Register {
+            OP: Instruction::SYS,
+            L: 0,
+            M: Syscall::Halt as usize,
+        }));
+        let result = code
             .enumerate()
             .map(|(index, register)| {
                 let op = format!("{:?}", register.OP);
+
                 format!(
                     "{index:>3} {OP:>8}{L:>8}{M:>8}",
                     OP = op,
@@ -180,15 +204,11 @@ type MayFail<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 struct SymbolTable {
     table: Vec<Symbol>,
-    addr: usize,
 }
 
 impl SymbolTable {
     fn new() -> Self {
-        Self {
-            table: Vec::new(),
-            addr: 3,
-        }
+        Self { table: Vec::new() }
     }
 
     pub fn print(&self) {
@@ -240,12 +260,10 @@ impl SymbolTable {
 
     fn push_symbol(&mut self, symbol: Symbol) {
         self.table.push(symbol);
-        self.addr += 1;
     }
 
     fn push_const(&mut self, name: String, value: usize) -> MayFail<usize> {
         self.find_index_or_throw(&name, 3)?;
-        let current_offset = self.table.len();
         self.push_symbol(Symbol {
             kind: SymbolKind::Const,
             name,
@@ -254,23 +272,22 @@ impl SymbolTable {
             addr: 0,
             mark: false,
         });
-        Ok(current_offset + 1)
+        Ok(self.table.len())
     }
 
     // In C translation, this function will never throw an error.
-    fn push_var(&mut self, name: String) -> MayFail<usize> {
+    fn push_var(&mut self, name: String, addr: usize) -> MayFail<usize> {
         match self.find_index_or_throw(&name, 3) {
             Err(_) => {
-                let current_offset = self.table.len();
                 self.push_symbol(Symbol {
                     kind: SymbolKind::Var,
                     name,
-                    addr: self.addr,
+                    addr,
                     value: 0,
                     level: 0,
                     mark: false,
                 });
-                Ok(current_offset + 1)
+                Ok(self.table.len())
             }
             Ok(_) => throw!(3),
         }
@@ -300,19 +317,10 @@ struct Token {
 }
 
 impl Token {
-    fn is_valid_number(&self) -> bool {
-        self.kind == TokenType::Number
-            && match self.meta {
-                Some(ref s) => s.as_str() != "Number too long",
-                _ => false,
-            }
-    }
-
     fn get_number(&self) -> MayFail<usize> {
-        if !self.is_valid_number() {
-            Err("Called get_number() in a Token that is not TokenType::Number".into())
-        } else {
-            Ok(self.meta.as_ref().unwrap().parse()?)
+        match self.meta {
+            Some(ref meta) => Ok(meta.parse::<usize>()?),
+            None => Err("Called get_number() in a Token that is not TokenType::Number".into()),
         }
     }
 
@@ -381,14 +389,16 @@ impl DerefMut for SymbolTable {
     }
 }
 
-const UNKNOWN_VALUE: usize = 0xFF;
-
 impl TokenStream {
-    fn emit(&mut self, instruction: Instruction, M: usize) {
+    fn jpc_offset(&mut self) -> usize {
+        self.pcode.len() * 3
+    }
+
+    fn emit(&mut self, instruction: Instruction, M: impl Into<usize>) {
         self.pcode.push(Register {
             OP: instruction,
             L: 0,
-            M,
+            M: M.into(),
         })
     }
 
@@ -517,7 +527,7 @@ impl TokenStream {
                     return throw!(3);
                 }
 
-                self.symbol_table.push_var(ident_name.clone())?;
+                self.symbol_table.push_var(ident_name.clone(), count + 2)?;
                 self.next();
 
                 if self.token() != TokenType::Comma {
@@ -579,8 +589,8 @@ impl TokenStream {
                 self.next();
                 self.condition()?;
 
-                let jpc_index = self.iteration;
-                self.emit(Instruction::JPC, UNKNOWN_VALUE);
+                let jpc_index = self.pcode.len();
+                self.emit(Instruction::JPC, 0usize);
 
                 if self.token() != TokenType::Then {
                     return throw!(11);
@@ -588,12 +598,19 @@ impl TokenStream {
 
                 self.next();
                 self.statement()?;
-                self.pcode[jpc_index].M = self.iteration;
+
+                if self.token() != TokenType::Fi {
+                    return throw!(16);
+                }
+
+                self.next();
+
+                self.pcode[jpc_index].M = self.jpc_offset();
             }
             TokenType::While => {
                 self.next();
 
-                let loop_index = self.iteration;
+                let loop_index = self.pcode.len();
                 self.condition()?;
 
                 if self.token() != TokenType::Do {
@@ -602,13 +619,13 @@ impl TokenStream {
 
                 self.next();
 
-                let jpc_index = self.iteration;
+                let jpc_index = self.pcode.len();
 
-                self.emit(Instruction::JPC, UNKNOWN_VALUE);
+                self.emit(Instruction::JPC, 0usize);
                 self.statement()?;
                 self.emit(Instruction::JMP, loop_index);
 
-                self.pcode[jpc_index].M = self.iteration;
+                self.pcode[jpc_index].M = self.jpc_offset();
             }
             TokenType::Read => {
                 self.next();
@@ -624,13 +641,13 @@ impl TokenStream {
                 }
 
                 self.next();
-                self.emit(Instruction::READ, UNKNOWN_VALUE);
+                self.emit(Instruction::SYS, Syscall::Read);
                 self.emit(Instruction::STO, self.get_symbol(symbol_index)?.addr);
             }
             TokenType::Write => {
                 self.next();
                 self.expression()?;
-                self.emit(Instruction::WRITE, UNKNOWN_VALUE);
+                self.emit(Instruction::SYS, Syscall::Write);
             }
             token => unreachable!("Statement received an unknown token type: TokenType::{token:?}"),
         };
@@ -639,39 +656,32 @@ impl TokenStream {
     }
 
     fn condition(&mut self) -> MayFail {
-        if self.token() == TokenType::Odd {
-            self.next();
-            self.expression()?;
-            self.emit(Instruction::ODD, UNKNOWN_VALUE);
-            Ok(())
-        } else {
-            self.expression()?;
+        self.expression()?;
 
-            macro_rules! assert_kind {
-                ($(($token:ident, $instr:ident)),*) => {
-                    match self.kind() {
-                        $(
-                            TokenType::$token => {
-                                self.next();
-                                self.expression()?;
-                                self.emit(Instruction::$instr, UNKNOWN_VALUE);
-                                Ok(())
-                            }
-                        )*
-                        _ => throw!(15)
-                    }
-                };
-            }
-
-            assert_kind![
-                (Eq, EQL),
-                (Neq, NEG),
-                (Les, LSS),
-                (Leq, LEQ),
-                (Gtr, GTR),
-                (Geq, GEQ)
-            ]
+        macro_rules! assert_kind {
+            ($(($token:ident, $instr:ident)),*) => {
+                match self.kind() {
+                    $(
+                        TokenType::$token => {
+                            self.next();
+                            self.expression()?;
+                            self.emit(Instruction::OPR, OprCode::$instr);
+                            Ok(())
+                        }
+                    )*
+                    _ => throw!(15)
+                }
+            };
         }
+
+        assert_kind![
+            (Eq, EQL),
+            (Neq, NEG),
+            (Les, LSS),
+            (Leq, LEQ),
+            (Gtr, GTR),
+            (Geq, GEQ)
+        ]
     }
 
     fn expression(&mut self) -> MayFail {
@@ -682,12 +692,12 @@ impl TokenStream {
                         TokenType::Minus => {
                             self.next();
                             self.term()?;
-                            self.emit(Instruction::SUB, UNKNOWN_VALUE);
+                            self.emit(Instruction::OPR, OprCode::SUB);
                         }
                         TokenType::Plus => {
                             self.next();
                             self.term()?;
-                            self.emit(Instruction::ADD, UNKNOWN_VALUE);
+                            self.emit(Instruction::OPR, OprCode::ADD);
                         }
                         _ => unreachable!(),
                     }
@@ -699,7 +709,7 @@ impl TokenStream {
             TokenType::Minus => {
                 self.next();
                 self.term()?;
-                self.emit(Instruction::NEG, UNKNOWN_VALUE);
+                self.emit(Instruction::OPR, OprCode::NEG);
                 match_kind!();
             }
             kind => {
@@ -724,7 +734,7 @@ impl TokenStream {
                             TokenType::$token => {
                                 self.next();
                                 self.factor()?;
-                                self.emit(Instruction::$instr, UNKNOWN_VALUE);
+                                self.emit(Instruction::OPR, OprCode::$instr);
                             }
                         )*
                         _ => unreachable!(),
@@ -733,13 +743,16 @@ impl TokenStream {
             };
         }
 
-        Ok(match_kind![(Mult, MUL), (Slash, DIV), (Mod, MOD)])
+        Ok(match_kind![(Mult, MUL), (Slash, DIV)])
     }
 
     fn factor(&mut self) -> MayFail {
         match self.kind() {
             TokenType::Ident => {
                 let symbol_index = self.get_symbol_index()?;
+
+                self.symbol_table[symbol_index].mark = true;
+
                 let symbol = self.get_symbol(symbol_index)?;
 
                 if symbol.kind == SymbolKind::Const {
@@ -801,7 +814,11 @@ fn main() -> MayFail {
 
     let mut token_stream = TokenStream::from(tokens);
 
-    token_stream.program()?;
+    if let Err(e) = token_stream.program() {
+        println!("{e:?}");
+        return Ok(());
+    }
+
     token_stream.pcode.print();
     token_stream.symbol_table.print();
     token_stream.pcode.finish()
