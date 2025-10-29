@@ -389,7 +389,7 @@ MayFail st_push_const(char *name, int value) {
         };
         strncpy(symbol_value.name, name, sizeof symbol_value.name - 1);
         st_push_symbol(symbol_value);
-        return Ok(&SYMBOL_TABLE_LEN);
+        return Ok(&SYMBOL_TABLE_LEN - 1);
     } else {
         return Err(throw(3));
     }
@@ -413,7 +413,7 @@ MayFail st_push_var(char *name, int addr) {
         };
         strncpy(symbol_value.name, name, sizeof symbol_value.name - 1);
         st_push_symbol(symbol_value);
-        return Ok(&SYMBOL_TABLE_LEN);
+        return Ok(&SYMBOL_TABLE_LEN - 1);
     } else {
         return Err(throw(3));
     }
@@ -626,7 +626,10 @@ MayFail ts_const_declaration(TokenStream *self) {
             }
 
             int ident_value_d0 = token_get_number(ts_token(self));
-            symbol_table[ident_offset_d0].val = ident_value_d0;
+
+            Symbol *symbol_ref = &symbol_table[ident_offset_d0];
+            symbol_ref->val = ident_value_d0;
+
             ts_next(self);
         } while (ts_kind(self) == TokenType_Comma);
 

@@ -1,5 +1,7 @@
 #![allow(non_snake_case, dead_code)]
 
+mod lex;
+
 use std::{
     fmt::Display,
     ops::{Deref, DerefMut},
@@ -789,6 +791,8 @@ impl PartialEq<TokenType> for &Token {
 }
 
 fn main() -> MayFail {
+    lex::run();
+    return Ok(());
     let file = std::fs::read_to_string("tokens.txt")?;
 
     let tokens = file
