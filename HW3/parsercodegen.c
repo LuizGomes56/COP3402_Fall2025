@@ -31,7 +31,7 @@ Due Date: Friday, October 31, 2025 at 11:59 PM ET
 */
 
 // ! No AI usage; Sources = GOOGLE
-// ! This is a literal translation I did to my Rust code
+// ! This is a literal translation from my Rust source code.
 // ! (commented at the end of this file)
 
 #include <ctype.h>
@@ -42,12 +42,22 @@ Due Date: Friday, October 31, 2025 at 11:59 PM ET
 #define MAX_SYMBOL_TABLE_SIZE 500
 #define MAX_PCODE_SIZE 5000
 
+/// Creating a new helper macro to propagate errors through functions that may fail
+/// Same as Rust's `?` operator. Propagates the error if MayFail failed.
 #define try(expr)              \
     do {                       \
         MayFail __mf = (expr); \
         if (__mf.is_error)     \
             return __mf;       \
     } while (0)
+
+/// macro_rules! try_cast { ($try:expr) => { $try? } }
+/// Propagates the error. If it is successful, gets the value by casting the `value` field.
+/// that the `MayFail` type has returned. First argument must be the type to cast to.
+#define try_cast(T, expr) \
+    ({ MayFail __mf = (expr);       \
+    if (__mf.is_error) return __mf; \
+    *(T *)__mf.value; })
 
 /// @brief Port the MayFail type from Rust to C. Field `value` must be
 /// casted to something else to be used. Example:
@@ -56,6 +66,13 @@ Due Date: Friday, October 31, 2025 at 11:59 PM ET
 /// MayFail success = ts_var_declaration(&token_stream, &out);
 /// int returned_int = *(int *)success.value;
 /// ```
+/// I'm using the macro `try` and `try_cast` instead of manually doing it all the time.
+/// Since C has no operators to propagate errors, this has to be manually done and pollutes the code.
+/// However this is still the best way to guarantee that the program won't crash and avoid doing
+/// weird comparisons such as `if (x == -1) { ... }` that says nothing about the error (error was not a value),
+/// and has much less flexibility in its return type (must be fixed type instead of any such as in this implementation).
+/// This is the same as `Result<T, E> where T: *const (), E: Box<dyn std::error::Error>`. T is a void pointer and
+/// behave the same way in here -> can be unsafely casted to anything. Crashes if the cast was done to the wrong type.
 typedef struct MayFail {
     int is_error;
     /// @brief Can be anything after all. A pointer that points to anything
@@ -66,16 +83,16 @@ typedef struct MayFail {
 
 /// @brief I'd rather use my own struct but this was provided by the assignment
 /// and I'm not sure if I can change it.
-typedef struct symbol {
+typedef struct Symbol {
     int kind;      // const = 1, var = 2, proc = 3
     char name[12]; // name up to 11 chars
     int val;       // number (ASCII value)
     int level;     // L level
     int addr;      // M address
     int mark;      // to indicate unavailable or deleted
-} symbol;
+} Symbol;
 
-symbol symbol_table[MAX_SYMBOL_TABLE_SIZE];
+static Symbol symbol_table[MAX_SYMBOL_TABLE_SIZE];
 
 /// All `self` variables were moved to a static environment. Rust controls
 /// the length of a Vec automatically, but C doesn't have it
@@ -120,8 +137,13 @@ char *throw(int code) {
     /// Custom error I added since I noticed that this "if-then" error was missing
     case 16:
         return "Error: if must have a condition and be followed by fi";
+    /// Internal error
+    case 17:
+        return "Assertion (iteration >= self->len_tokens) failed [IOB]";
+    case 18:
+        return "Symbol table indexation failed: Index out of bounds";
     default:
-        return "Unknown error kind";
+        return "Unknown error code passed to 'throw' function";
     }
 }
 
@@ -267,10 +289,11 @@ MayFail Ok(void *value) {
 /// @param error_message Usually from function `throw`, but can be a literal string as well
 /// @return `struct MayFail`
 MayFail Err(char *error_message) {
-    MayFail may_fail;
-    may_fail.value = NULL;
-    may_fail.is_error = 1;
-    may_fail.error_message = error_message;
+    MayFail may_fail = {
+        .value = NULL,
+        .is_error = 1,
+        .error_message = error_message,
+    };
     return may_fail;
 }
 
@@ -289,7 +312,7 @@ void st_print() {
     }
     puts("");
     for (int i = 0; i < SYMBOL_TABLE_LEN; i++) {
-        symbol sym = symbol_table[i];
+        Symbol sym = symbol_table[i];
 
         printf(
             "%4d | %11s | %5d | %5d | %7d | %4d\n",
@@ -319,7 +342,7 @@ int st_has_symbol(char *name) {
 /// @return `struct MayFail` with `void*` being of type `symbol`
 MayFail st_get_index(int index) {
     if (index < 0 || index >= SYMBOL_TABLE_LEN) {
-        return Err("Index out of bounds");
+        return Err(throw(18));
     }
     return Ok(&(symbol_table[index]));
 }
@@ -341,7 +364,7 @@ MayFail st_find_index_or_throw(const char *name, int code, int *out_index) {
 
 /// @brief Inserts a symbol to the symbol table. Can't fail.
 /// @param symbol Symbol to be inserted
-void st_push_symbol(symbol symbol) {
+void st_push_symbol(Symbol symbol) {
     symbol_table[SYMBOL_TABLE_LEN] = symbol;
     SYMBOL_TABLE_LEN++;
 }
@@ -355,7 +378,7 @@ MayFail st_push_const(char *name, int value) {
     int out_index = 0;
     MayFail fail = st_find_index_or_throw(name, 3, &out_index);
     if (fail.is_error) {
-        symbol symbol_value = {
+        Symbol symbol_value = {
             .kind = SymbolKind_Const,
             .val = value,
             .level = 0,
@@ -379,7 +402,7 @@ MayFail st_push_var(char *name, int addr) {
     int out_index = 0;
     MayFail fail = st_find_index_or_throw(name, 3, &out_index);
     if (fail.is_error) {
-        symbol symbol_value = {
+        Symbol symbol_value = {
             .kind = SymbolKind_Var,
             .val = 0,
             .level = 0,
@@ -485,7 +508,7 @@ void ts_emit(TokenStream *self, Instruction instr, int M) {
 /// @return `struct MayFail` with `void*` being of type `Token`
 MayFail ts_get_token(TokenStream *self, int iteration) {
     if (iteration >= self->len_tokens) {
-        return Err("Assertion (iteration >= self->len_tokens) failed [IOB]");
+        return Err(throw(17));
     }
     return Ok(&(self->tokens[iteration]));
 }
@@ -520,14 +543,14 @@ TokenType ts_next(TokenStream *self) {
 MayFail ts_get_symbol_index(TokenStream *self, int *out_index) {
     Token token = ts_token(self);
     char *meta = token.meta;
-    MayFail index_fail = st_find_index_or_throw(meta, 7, out_index);
-    if (index_fail.is_error) {
-        return index_fail;
-    }
+    try(st_find_index_or_throw(meta, 7, out_index));
     return Ok(NULL);
 }
 
-/// @brief Starts to parse the token stream
+/// @brief Starts to parse the token stream. Note that all following functions will have similar signature.
+/// In Rust, the `&self` automatically has type `Self`, which refers to the type it is implementing the method to.
+/// In this case it is struct `TokenStream`. A regular pointer is already mutable in C, and adding `const` modifier
+/// to it won't make any difference since the first reference (base) is already mutable.
 /// @return `struct MayFail` with `void*` null
 MayFail ts_program(TokenStream *self) {
     /// If there's any skip symbol, there's no point on start parsing
@@ -539,15 +562,12 @@ MayFail ts_program(TokenStream *self) {
         }
     }
 
-    TokenType last = self->tokens[self->len_tokens - 1].kind;
-    if (last != TokenType_Period) {
+    TokenType last_token = self->tokens[self->len_tokens - 1].kind;
+    if (last_token != TokenType_Period) {
         /// Program must end with period symbol
         return Err(throw(1));
     } else {
-        MayFail block_fail = ts_block(self);
-        if (block_fail.is_error) {
-            return block_fail;
-        }
+        try(ts_block(self));
         return Ok(NULL);
     }
 }
@@ -557,29 +577,13 @@ MayFail ts_program(TokenStream *self) {
 MayFail ts_block(TokenStream *self) {
     try(ts_const_declaration(self));
 
-    // MayFail const_declaration_fail = ts_const_declaration(self);
-
-    // if (const_declaration_fail.is_error) {
-    //     return const_declaration_fail;
-    // }
-
     int number_of_vars = 0;
 
     try(ts_var_declaration(self, &number_of_vars));
 
-    // MayFail var_declaration_fail = ts_var_declaration(self, &number_of_vars);
-
-    // if (var_declaration_fail.is_error) {
-    //     return var_declaration_fail;
-    // }
     ts_emit(self, Instruction_INC, number_of_vars + 3);
 
     try(ts_statement(self));
-    // MayFail statement_fail = ts_statement(self);
-
-    // if (statement_fail.is_error) {
-    //     return statement_fail;
-    // }
 
     ts_emit(self, Instruction_SYS, Syscall_Halt);
     return Ok(NULL);
@@ -600,12 +604,7 @@ MayFail ts_const_declaration(TokenStream *self) {
                 return Err(throw(3));
             }
 
-            MayFail pushed_const = st_push_const(ident_name, 0);
-            if (pushed_const.is_error) {
-                return pushed_const;
-            }
-
-            int ident_offset_d0 = *(int *)pushed_const.value;
+            int ident_offset_d0 = try_cast(int, st_push_const(ident_name, 0));
             TokenType token_d1 = ts_next(self);
 
             if (token_d1 != TokenType_Eq) {
@@ -648,14 +647,10 @@ MayFail ts_var_declaration(TokenStream *self, int *count) {
             char *ident_name = ts_token(self).meta;
 
             if (st_has_symbol(ident_name)) {
-                printf("Symbol %s already exists", ident_name);
                 return Err(throw(3));
             }
 
-            MayFail pushed_var = st_push_var(ident_name, *count + 2);
-            if (pushed_var.is_error) {
-                return pushed_var;
-            }
+            try(st_push_var(ident_name, *count + 2));
 
             ts_next(self);
         } while (ts_kind(self) == TokenType_Comma);
@@ -673,17 +668,9 @@ MayFail ts_statement(TokenStream *self) {
     switch (ts_kind(self)) {
     case TokenType_Ident: {
         int symbol_index_s0 = 0;
-        MayFail get_symbol_fail = ts_get_symbol_index(self, &symbol_index_s0);
-        if (get_symbol_fail.is_error) {
-            return get_symbol_fail;
-        }
+        try(ts_get_symbol_index(self, &symbol_index_s0));
 
-        MayFail get_symbol_fail_2 = st_get_index(symbol_index_s0);
-        if (get_symbol_fail_2.is_error) {
-            return get_symbol_fail_2;
-        }
-
-        symbol retreived_symbol = *(symbol *)get_symbol_fail_2.value;
+        Symbol retreived_symbol = try_cast(Symbol, st_get_index(symbol_index_s0));
 
         if (retreived_symbol.kind != TokenType_Var) {
             return Err(throw(8));
@@ -696,11 +683,7 @@ MayFail ts_statement(TokenStream *self) {
         }
 
         ts_next(self);
-        MayFail expression_fail = ts_expression(self);
-        if (expression_fail.is_error) {
-            return expression_fail;
-        }
-
+        try(ts_expression(self));
         ts_emit(self, Instruction_STO, retreived_symbol.addr);
         break;
     }
@@ -712,10 +695,7 @@ MayFail ts_statement(TokenStream *self) {
                 break;
             }
 
-            MayFail statement_fail = ts_statement(self);
-            if (statement_fail.is_error) {
-                return statement_fail;
-            }
+            try(ts_statement(self));
         } while (ts_kind(self) == TokenType_Semicolon);
 
         if (ts_kind(self) != TokenType_End) {
@@ -728,11 +708,7 @@ MayFail ts_statement(TokenStream *self) {
     case TokenType_If: {
         ts_next(self);
 
-        MayFail condition_fail_s0 = ts_condition(self);
-        if (condition_fail_s0.is_error) {
-            return condition_fail_s0;
-        }
-
+        try(ts_condition(self));
         int jpc_index_0 = PCODE_LEN;
         ts_emit(self, Instruction_JPC, 0);
 
@@ -741,10 +717,7 @@ MayFail ts_statement(TokenStream *self) {
         }
 
         ts_next(self);
-        MayFail statement_fail = ts_statement(self);
-        if (statement_fail.is_error) {
-            return statement_fail;
-        }
+        try(ts_statement(self));
 
         if (ts_kind(self) != TokenType_Fi) {
             return Err(throw(16));
@@ -758,10 +731,7 @@ MayFail ts_statement(TokenStream *self) {
         ts_next(self);
 
         int loop_index = PCODE_LEN;
-        MayFail condition_fail_s1 = ts_condition(self);
-        if (condition_fail_s1.is_error) {
-            return condition_fail_s1;
-        }
+        try(ts_condition(self));
 
         if (ts_kind(self) != TokenType_Do) {
             return Err(throw(12));
@@ -785,17 +755,14 @@ MayFail ts_statement(TokenStream *self) {
         }
 
         int symbol_index_s1 = 0;
-        MayFail symbol_index_fail = ts_get_symbol_index(self, &symbol_index_s1);
-        if (symbol_index_fail.is_error) {
-            return symbol_index_fail;
-        }
+        try(ts_get_symbol_index(self, &symbol_index_s1));
 
         MayFail get_Symbol_fail_3 = st_get_index(symbol_index_s1);
         if (get_Symbol_fail_3.is_error) {
             return get_Symbol_fail_3;
         }
 
-        symbol retreived_symbol_2 = *(symbol *)get_Symbol_fail_3.value;
+        Symbol retreived_symbol_2 = *(Symbol *)get_Symbol_fail_3.value;
 
         if (retreived_symbol_2.kind != TokenType_Var) {
             return Err(throw(8));
@@ -808,10 +775,7 @@ MayFail ts_statement(TokenStream *self) {
     }
     case TokenType_Write: {
         ts_next(self);
-        MayFail expression_fail_2 = ts_expression(self);
-        if (expression_fail_2.is_error) {
-            return expression_fail_2;
-        }
+        try(ts_expression(self));
 
         ts_emit(self, Instruction_SYS, Syscall_Write);
         break;
@@ -819,7 +783,7 @@ MayFail ts_statement(TokenStream *self) {
     default: {
         TokenType this_token = ts_kind(self);
         char message[256];
-        snprintf(message, sizeof message, "Found unexpected token: %d at iteration %d", this_token, self->iteration);
+        snprintf(message, sizeof message, "Found unexpected token id: %d at iteration %d", this_token, self->iteration);
         return Err(message);
     }
     }
@@ -828,63 +792,42 @@ MayFail ts_statement(TokenStream *self) {
 }
 
 MayFail ts_condition(TokenStream *self) {
-    MayFail expression_fail = ts_expression(self);
-    if (expression_fail.is_error) {
-        return expression_fail;
-    }
+    try(ts_expression(self));
 
     switch (ts_kind(self)) {
     case TokenType_Eq: {
         ts_next(self);
-        MayFail expression_fail_c0 = ts_expression(self);
-        if (expression_fail_c0.is_error) {
-            return expression_fail_c0;
-        }
+        try(ts_expression(self));
         ts_emit(self, Instruction_OPR, OprCode_EQL);
         break;
     }
     case TokenType_Neq: {
         ts_next(self);
-        MayFail expression_fail_c1 = ts_expression(self);
-        if (expression_fail_c1.is_error) {
-            return expression_fail_c1;
-        }
+        try(ts_expression(self));
         ts_emit(self, Instruction_OPR, OprCode_NEG);
         break;
     }
     case TokenType_Les: {
         ts_next(self);
-        MayFail expression_fail_c2 = ts_expression(self);
-        if (expression_fail_c2.is_error) {
-            return expression_fail_c2;
-        }
+        try(ts_expression(self));
         ts_emit(self, Instruction_OPR, OprCode_LSS);
         break;
     }
     case TokenType_Leq: {
         ts_next(self);
-        MayFail expression_fail_c3 = ts_expression(self);
-        if (expression_fail_c3.is_error) {
-            return expression_fail_c3;
-        }
+        try(ts_expression(self));
         ts_emit(self, Instruction_OPR, OprCode_LEQ);
         break;
     }
     case TokenType_Gtr: {
         ts_next(self);
-        MayFail expression_fail_c4 = ts_expression(self);
-        if (expression_fail_c4.is_error) {
-            return expression_fail_c4;
-        }
+        try(ts_expression(self));
         ts_emit(self, Instruction_OPR, OprCode_GTR);
         break;
     }
     case TokenType_Geq: {
         ts_next(self);
-        MayFail expression_fail_c5 = ts_expression(self);
-        if (expression_fail_c5.is_error) {
-            return expression_fail_c5;
-        }
+        try(ts_expression(self));
         ts_emit(self, Instruction_OPR, OprCode_GEQ);
         break;
     }
@@ -899,31 +842,17 @@ MayFail ts_expression(TokenStream *self) {
     if (ts_kind(self) == TokenType_Minus) {
         ts_next(self);
 
-        MayFail fail_term = ts_term(self);
-        if (fail_term.is_error) {
-            return fail_term;
-        }
-
+        try(ts_term(self));
         ts_emit(self, Instruction_OPR, OprCode_NEG);
 
         while (ts_kind(self) == TokenType_Plus || ts_kind(self) == TokenType_Minus) {
             if (ts_kind(self) == TokenType_Plus) {
                 ts_next(self);
-
-                MayFail term_fail = ts_term(self);
-                if (term_fail.is_error) {
-                    return term_fail;
-                }
-
+                try(ts_term(self));
                 ts_emit(self, Instruction_OPR, OprCode_ADD);
             } else {
                 ts_next(self);
-
-                MayFail term_fail = ts_term(self);
-                if (term_fail.is_error) {
-                    return term_fail;
-                }
-
+                try(ts_term(self));
                 ts_emit(self, Instruction_OPR, OprCode_SUB);
             }
         }
@@ -932,29 +861,16 @@ MayFail ts_expression(TokenStream *self) {
             ts_next(self);
         }
 
-        MayFail fail_term = ts_term(self);
-        if (fail_term.is_error) {
-            return fail_term;
-        }
+        try(ts_term(self));
 
         while (ts_kind(self) == TokenType_Plus || ts_kind(self) == TokenType_Minus) {
             if (ts_kind(self) == TokenType_Plus) {
                 ts_next(self);
-
-                MayFail term_fail = ts_term(self);
-                if (term_fail.is_error) {
-                    return term_fail;
-                }
-
+                try(ts_term(self));
                 ts_emit(self, Instruction_OPR, OprCode_ADD);
             } else {
                 ts_next(self);
-
-                MayFail term_fail = ts_term(self);
-                if (term_fail.is_error) {
-                    return term_fail;
-                }
-
+                try(ts_term(self));
                 ts_emit(self, Instruction_OPR, OprCode_SUB);
             }
         }
@@ -964,29 +880,16 @@ MayFail ts_expression(TokenStream *self) {
 }
 
 MayFail ts_term(TokenStream *self) {
-    MayFail factor_fail = ts_factor(self);
-    if (factor_fail.is_error) {
-        return factor_fail;
-    }
+    try(ts_factor(self));
 
     while (ts_kind(self) == TokenType_Mult || ts_kind(self) == TokenType_Slash) {
-        if (ts_token(self).kind == TokenType_Mult) {
+        if (ts_kind(self) == TokenType_Mult) {
             ts_next(self);
-
-            MayFail factor_fail = ts_factor(self);
-            if (factor_fail.is_error) {
-                return factor_fail;
-            }
-
+            try(ts_factor(self));
             ts_emit(self, Instruction_OPR, OprCode_MUL);
         } else {
             ts_next(self);
-
-            MayFail factor_fail = ts_factor(self);
-            if (factor_fail.is_error) {
-                return factor_fail;
-            }
-
+            try(ts_factor(self));
             ts_emit(self, Instruction_OPR, OprCode_DIV);
         }
     }
@@ -998,18 +901,10 @@ MayFail ts_factor(TokenStream *self) {
     switch (ts_kind(self)) {
     case TokenType_Ident: {
         int symbol_index = 0;
-        MayFail symbol_index_fail = ts_get_symbol_index(self, &symbol_index);
-        if (symbol_index_fail.is_error) {
-            return symbol_index_fail;
-        }
+        try(ts_get_symbol_index(self, &symbol_index));
 
         symbol_table[symbol_index].mark = 1;
-        MayFail symbol_fail = st_get_index(symbol_index);
-        if (symbol_fail.is_error) {
-            return symbol_fail;
-        }
-
-        symbol this_symbol = *(symbol *)symbol_fail.value;
+        Symbol this_symbol = try_cast(Symbol, st_get_index(symbol_index));
 
         if (this_symbol.kind == SymbolKind_Const) {
             ts_emit(self, Instruction_LIT, this_symbol.val);
@@ -1027,7 +922,7 @@ MayFail ts_factor(TokenStream *self) {
     }
     case TokenType_Lparent: {
         ts_next(self);
-        ts_expression(self);
+        try(ts_expression(self));
         if (ts_kind(self) != TokenType_Rparent) {
             return Err(throw(14));
         }
