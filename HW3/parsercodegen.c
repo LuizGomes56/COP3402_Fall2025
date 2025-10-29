@@ -139,11 +139,13 @@ char *throw(int code) {
         return "Error: if must have a condition and be followed by fi";
     /// Internal error
     case 17:
-        return "Assertion (iteration >= self->len_tokens) failed [IOB]";
+        return "Error: Assertion (iteration >= self->len_tokens) failed [IOB]";
     case 18:
-        return "Symbol table indexation failed: Index out of bounds";
+        return "Error: Symbol table indexation failed: Index out of bounds";
+    case 19:
+        return "Error: Symbol is no longer usable (mark = 1)";
     default:
-        return "Unknown error code passed to 'throw' function";
+        return "Error: Unknown error code passed to 'throw' function";
     }
 }
 
@@ -519,7 +521,7 @@ Token ts_token(TokenStream *self) {
     MayFail fail = ts_get_token(self, TS_ITERATION);
     if (fail.is_error) {
         printf("Fatal error at ts_token [unwrap]: %s", fail.error_message);
-        exit(1);
+        exit(0);
     }
     return *(Token *)fail.value;
 }
@@ -566,10 +568,17 @@ MayFail ts_program(TokenStream *self) {
     if (last_token != TokenType_Period) {
         /// Program must end with period symbol
         return Err(throw(1));
-    } else {
-        try(ts_block(self));
-        return Ok(NULL);
     }
+
+    try(ts_block(self));
+
+    /// Update field `mark` for every variable in Symbol table
+    for (int i = 0; i < SYMBOL_TABLE_LEN; i++) {
+        Symbol *sym = &symbol_table[i];
+        sym->mark = 1;
+    }
+
+    return Ok(NULL);
 }
 
 /// @brief Parses `block`
@@ -580,12 +589,11 @@ MayFail ts_block(TokenStream *self) {
     int number_of_vars = 0;
 
     try(ts_var_declaration(self, &number_of_vars));
-
     ts_emit(self, Instruction_INC, number_of_vars + 3);
 
     try(ts_statement(self));
-
     ts_emit(self, Instruction_SYS, Syscall_Halt);
+
     return Ok(NULL);
 }
 
@@ -672,8 +680,12 @@ MayFail ts_statement(TokenStream *self) {
 
         Symbol retreived_symbol = try_cast(Symbol, st_get_index(symbol_index_s0));
 
-        if (retreived_symbol.kind != TokenType_Var) {
+        if (retreived_symbol.kind != SymbolKind_Var) {
             return Err(throw(8));
+        }
+
+        if (retreived_symbol.mark != 0) {
+            return Err(throw(19));
         }
 
         TokenType token = ts_next(self);
@@ -757,14 +769,9 @@ MayFail ts_statement(TokenStream *self) {
         int symbol_index_s1 = 0;
         try(ts_get_symbol_index(self, &symbol_index_s1));
 
-        MayFail get_Symbol_fail_3 = st_get_index(symbol_index_s1);
-        if (get_Symbol_fail_3.is_error) {
-            return get_Symbol_fail_3;
-        }
+        Symbol retreived_symbol_2 = try_cast(Symbol, st_get_index(symbol_index_s1));
 
-        Symbol retreived_symbol_2 = *(Symbol *)get_Symbol_fail_3.value;
-
-        if (retreived_symbol_2.kind != TokenType_Var) {
+        if (retreived_symbol_2.kind != SymbolKind_Var) {
             return Err(throw(8));
         }
 
@@ -903,7 +910,10 @@ MayFail ts_factor(TokenStream *self) {
         int symbol_index = 0;
         try(ts_get_symbol_index(self, &symbol_index));
 
-        symbol_table[symbol_index].mark = 1;
+        if (symbol_table[symbol_index].mark != 0) {
+            return Err(throw(19));
+        }
+
         Symbol this_symbol = try_cast(Symbol, st_get_index(symbol_index));
 
         if (this_symbol.kind == SymbolKind_Const) {
@@ -940,11 +950,7 @@ MayFail ts_factor(TokenStream *self) {
 /// @brief Returns -1 if token's meta is not a valid number, and the number otherwise
 /// @return Parsing of token's meta to integer. Same as `token.meta.parse::<i32>().unwrap_or(-1)`
 int token_get_number(Token token) {
-    if (token.meta == NULL) {
-        return -1;
-    } else {
-        return atoi(token.meta);
-    }
+    return atoi(token.meta);
 }
 
 /// @brief Checks if a string contains only whitespace kind. Builtin function in Rust.
