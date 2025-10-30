@@ -74,11 +74,14 @@ fn main() {
         */
 
         // Read input.txt file
-        let input = std::fs::read_to_string("test_procedure_in.txt").unwrap();
+        let input = std::fs::read_to_string("__hw3_gen.txt").unwrap();
         let raw_instructions = input.split("\n").collect::<Vec<_>>();
         let instructions = raw_instructions
             .iter()
             .filter_map(|line| {
+                if line.is_empty() {
+                    return None;
+                }
                 let operations = line.split(" ").collect::<Vec<_>>();
                 (operations.len() == 3).then_some({
                     InstRegister {

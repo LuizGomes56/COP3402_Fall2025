@@ -296,6 +296,12 @@ int main(int argc, char *argv[]) {
                 SP += 1;
                 break;
             }
+            case 11: {
+                strcpy(op_name, "EVEN");
+                PAS[SP + 1] = PAS[SP] % 2 == 0;
+                SP += 1;
+                break;
+            }
             }
             break;
         }

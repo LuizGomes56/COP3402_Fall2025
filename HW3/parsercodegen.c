@@ -488,12 +488,6 @@ void pcode_elf() {
     fclose(elf);
 }
 
-/// @brief Multiplies by 3 the current `pcode` array length to get the `JPC` offset
-/// @return The `JPC` offset
-int ts_jpc_offset() {
-    return PCODE_LEN * 3;
-}
-
 /// @brief Adds an instruction to the `pcode` array
 /// @param self `TokenStream` adapt
 /// @param instr Instruction code
@@ -727,7 +721,7 @@ MayFail ts_statement(TokenStream *self) {
         ts_next(self);
 
         try(ts_condition(self));
-        int jpc_index_0 = PCODE_LEN;
+        int jpc_index = PCODE_LEN;
         ts_emit(self, Instruction_JPC, 0);
 
         if (ts_kind(self) != TokenType_Then) {
@@ -742,7 +736,7 @@ MayFail ts_statement(TokenStream *self) {
         }
 
         ts_next(self);
-        pcode[jpc_index_0].M = ts_jpc_offset();
+        pcode[jpc_index].M = PCODE_LEN;
         break;
     }
     case TokenType_While: {
@@ -757,12 +751,13 @@ MayFail ts_statement(TokenStream *self) {
 
         ts_next(self);
 
-        int jpc_index_1 = PCODE_LEN;
+        int jpc_index = PCODE_LEN;
+
         ts_emit(self, Instruction_JPC, 0);
         ts_statement(self);
         ts_emit(self, Instruction_JMP, loop_index);
 
-        pcode[jpc_index_1].M = ts_jpc_offset();
+        pcode[jpc_index].M = PCODE_LEN;
         break;
     }
     case TokenType_Read: {
