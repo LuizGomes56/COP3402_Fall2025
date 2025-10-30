@@ -51,9 +51,11 @@ Due Date: Friday, October 31, 2025 at 11:59 PM ET
             return __mf;       \
     } while (0)
 
-/// macro_rules! try_cast { ($try:expr) => { $try? } }
 /// Propagates the error. If it is successful, gets the value by casting the `value` field.
 /// that the `MayFail` type has returned. First argument must be the type to cast to.
+/// This will succeed if and only if the returned type is not stack-allocated (such as an integer)
+/// Integers are not guaranteed to remain in the same address after a function call, so it is
+/// Undefined behavior or most of times will just return zero if T: int
 #define try_cast(T, expr) \
     ({ MayFail __mf = (expr);       \
     if (__mf.is_error) return __mf; \
@@ -62,16 +64,15 @@ Due Date: Friday, October 31, 2025 at 11:59 PM ET
 /// @brief Port the MayFail type from Rust to C. Field `value` must be
 /// casted to something else to be used. Example:
 /// ```c
-/// int out = 0;
-/// MayFail success = ts_var_declaration(&token_stream, &out);
-/// int returned_int = *(int *)success.value;
+/// MayFail symbol = get_some_symbol(self);
+/// Symbol some_symbol = *(Symbol *)success.value;
 /// ```
 /// I'm using the macro `try` and `try_cast` instead of manually doing it all the time.
 /// Since C has no operators to propagate errors, this has to be manually done and pollutes the code.
 /// However this is still the best way to guarantee that the program won't crash and avoid doing
 /// weird comparisons such as `if (x == -1) { ... }` that says nothing about the error (error was not a value),
 /// and has much less flexibility in its return type (must be fixed type instead of any such as in this implementation).
-/// This is the same as `Result<T, E> where T: *const (), E: Box<dyn std::error::Error>`. T is a void pointer and
+/// This is the same as `Result<T, E> where T: *const (), E: &'static str`. T is a void pointer and
 /// behave the same way in here -> can be unsafely casted to anything. Crashes if the cast was done to the wrong type.
 typedef struct MayFail {
     int is_error;
@@ -81,8 +82,6 @@ typedef struct MayFail {
     const char *error_message;
 } MayFail;
 
-/// @brief I'd rather use my own struct but this was provided by the assignment
-/// and I'm not sure if I can change it.
 typedef struct Symbol {
     int kind;      // const = 1, var = 2, proc = 3
     char name[12]; // name up to 11 chars
@@ -97,57 +96,6 @@ static Symbol symbol_table[MAX_SYMBOL_TABLE_SIZE];
 /// All `self` variables were moved to a static environment. Rust controls
 /// the length of a Vec automatically, but C doesn't have it
 static int SYMBOL_TABLE_LEN = 0;
-
-/// Error codes defined in the assignment details
-char *throw(int code) {
-    switch (code) {
-    /// Added error if a skip symbol was found
-    case 0:
-        return "Error: Scanning error detected by lexer (skipsym present)";
-    case 1:
-        return "Error: program must end with period";
-    case 2:
-        return "Error: const, var, and read keywords must be followed by identifier";
-    case 3:
-        return "Error: symbol name has already been declared";
-    case 4:
-        return "Error: constants must be assigned with =";
-    case 5:
-        return "Error: constants must be assigned an integer value";
-    case 6:
-        return "Error: constant and variable declarations must be followed by a semicolon";
-    case 7:
-        return "Error: undeclared identifier";
-    case 8:
-        return "Error: only variable values may be altered";
-    case 9:
-        return "Error: assignment statements must use :=";
-    case 10:
-        return "Error: begin must be followed by end";
-    case 11:
-        return "Error: if must be followed by then";
-    case 12:
-        return "Error: while must be followed by do";
-    case 13:
-        return "Error: condition must contain comparison operator";
-    case 14:
-        return "Error: right parenthesis must follow left parenthesis";
-    case 15:
-        return "Error: arithmetic equations must contain operands, parentheses, numbers, or symbols";
-    /// Custom error I added since I noticed that this "if-then" error was missing
-    case 16:
-        return "Error: if must have a condition and be followed by fi";
-    /// Internal error
-    case 17:
-        return "Error: Assertion (iteration >= self->len_tokens) failed [IOB]";
-    case 18:
-        return "Error: Symbol table indexation failed: Index out of bounds";
-    case 19:
-        return "Error: Symbol is no longer usable (mark = 1)";
-    default:
-        return "Error: Unknown error code passed to 'throw' function";
-    }
-}
 
 /// @brief Symbol kind to be placed in the symbol table
 typedef enum SymbolKind {
@@ -275,6 +223,62 @@ MayFail ts_term(TokenStream *self);
 MayFail ts_factor(TokenStream *self);
 MayFail ts_get_token(TokenStream *self, int iteration);
 int token_get_number(Token token);
+
+/// Error codes defined in the assignment details
+char *throw(int code) {
+    // In the tokens.txt file is split in lines of tokens.
+    // Uncommenting this will show in which one of them the error was thrown
+    // printf("Error ocurred on token iteration %d\n", TS_ITERATION);
+    switch (code) {
+    /// Added error if a skip symbol was found
+    case 0:
+        return "Error: Scanning error detected by lexer (skipsym present)";
+    case 1:
+        return "Error: program must end with period";
+    case 2:
+        return "Error: const, var, and read keywords must be followed by identifier";
+    case 3:
+        return "Error: symbol name has already been declared";
+    case 4:
+        return "Error: constants must be assigned with =";
+    case 5:
+        return "Error: constants must be assigned an integer value";
+    case 6:
+        return "Error: constant and variable declarations must be followed by a semicolon";
+    case 7:
+        return "Error: undeclared identifier";
+    case 8:
+        return "Error: only variable values may be altered";
+    case 9:
+        return "Error: assignment statements must use :=";
+    case 10:
+        return "Error: begin must be followed by end";
+    case 11:
+        return "Error: if must be followed by then";
+    case 12:
+        return "Error: while must be followed by do";
+    case 13:
+        return "Error: condition must contain comparison operator";
+    case 14:
+        return "Error: right parenthesis must follow left parenthesis";
+    case 15:
+        return "Error: arithmetic equations must contain operands, parentheses, numbers, or symbols";
+    /// Custom error I added since I noticed that this "if-then" error was missing
+    case 16:
+        return "Error: if must have a condition and be followed by fi";
+    /// Internal error
+    case 17:
+        return "Error: Assertion (iteration >= self->len_tokens) failed [IOB]";
+    case 18:
+        return "Error: Symbol table indexation failed: Index out of bounds";
+    case 19:
+        return "Error: Symbol is no longer usable (mark = 1, maybe it is out of scope?)";
+    case 20:
+        return "Error: Expected identifier after 'even'";
+    default:
+        return "Error: Unknown error code passed to 'throw' function";
+    }
+}
 
 /// @brief Receives a pointer to anything and returns a MayFail type.
 /// @param value Intended to be an `int` or `String`
@@ -612,7 +616,9 @@ MayFail ts_const_declaration(TokenStream *self) {
                 return Err(throw(3));
             }
 
-            int ident_offset_d0 = try_cast(int, st_push_const(ident_name, 0));
+            try(st_push_const(ident_name, 0));
+            int ident_offset = SYMBOL_TABLE_LEN - 1;
+
             TokenType token_d1 = ts_next(self);
 
             if (token_d1 != TokenType_Eq) {
@@ -625,10 +631,7 @@ MayFail ts_const_declaration(TokenStream *self) {
                 return Err(throw(5));
             }
 
-            int ident_value_d0 = token_get_number(ts_token(self));
-
-            Symbol *symbol_ref = &symbol_table[ident_offset_d0];
-            symbol_ref->val = ident_value_d0;
+            symbol_table[ident_offset].val = token_get_number(ts_token(self));
 
             ts_next(self);
         } while (ts_kind(self) == TokenType_Comma);
@@ -802,6 +805,13 @@ MayFail ts_statement(TokenStream *self) {
 }
 
 MayFail ts_condition(TokenStream *self) {
+    if (ts_kind(self) == TokenType_Even) {
+        ts_next(self);
+        try(ts_expression(self));
+        ts_emit(self, Instruction_OPR, OprCode_EVEN);
+        return Ok(NULL);
+    }
+
     try(ts_expression(self));
 
     switch (ts_kind(self)) {
@@ -950,8 +960,8 @@ MayFail ts_factor(TokenStream *self) {
     return Ok(NULL);
 }
 
-/// @brief Returns -1 if token's meta is not a valid number, and the number otherwise
-/// @return Parsing of token's meta to integer. Same as `token.meta.parse::<i32>().unwrap_or(-1)`
+/// @brief If the Token has a metadata, returns it as an integer. Must be called if Token.kind is `TokenType::Number`
+/// @return Parsing of token's meta to integer. Same as `token.meta.parse::<i32>().unwrap()`
 int token_get_number(Token token) {
     return atoi(token.meta);
 }
