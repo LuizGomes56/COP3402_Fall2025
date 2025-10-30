@@ -393,7 +393,7 @@ MayFail st_push_const(char *name, int value) {
         };
         strncpy(symbol_value.name, name, sizeof symbol_value.name - 1);
         st_push_symbol(symbol_value);
-        return Ok(&SYMBOL_TABLE_LEN - 1);
+        return Ok(NULL);
     } else {
         return Err(throw(3));
     }
@@ -417,7 +417,7 @@ MayFail st_push_var(char *name, int addr) {
         };
         strncpy(symbol_value.name, name, sizeof symbol_value.name - 1);
         st_push_symbol(symbol_value);
-        return Ok(&SYMBOL_TABLE_LEN - 1);
+        return Ok(NULL);
     } else {
         return Err(throw(3));
     }
@@ -518,7 +518,7 @@ MayFail ts_get_token(TokenStream *self, int iteration) {
 Token ts_token(TokenStream *self) {
     MayFail fail = ts_get_token(self, TS_ITERATION);
     if (fail.is_error) {
-        printf("Fatal error at ts_token [unwrap]: %s", fail.error_message);
+        printf("Error: Called unwrap on Err(ts_get_token(self, TS_ITERATION)): %s", fail.error_message);
         exit(0);
     }
     return *(Token *)fail.value;
@@ -572,8 +572,7 @@ MayFail ts_program(TokenStream *self) {
 
     /// Update field `mark` for every variable in Symbol table
     for (int i = 0; i < SYMBOL_TABLE_LEN; i++) {
-        Symbol *sym = &symbol_table[i];
-        sym->mark = 1;
+        symbol_table[i].mark = 1;
     }
 
     return Ok(NULL);
@@ -675,10 +674,10 @@ MayFail ts_var_declaration(TokenStream *self, int *count) {
 MayFail ts_statement(TokenStream *self) {
     switch (ts_kind(self)) {
     case TokenType_Ident: {
-        int symbol_index_s0 = 0;
-        try(ts_get_symbol_index(self, &symbol_index_s0));
+        int symbol_index = 0;
+        try(ts_get_symbol_index(self, &symbol_index));
 
-        Symbol retreived_symbol = try_cast(Symbol, st_get_index(symbol_index_s0));
+        Symbol retreived_symbol = try_cast(Symbol, st_get_index(symbol_index));
 
         if (retreived_symbol.kind != SymbolKind_Var) {
             return Err(throw(8));
@@ -767,18 +766,18 @@ MayFail ts_statement(TokenStream *self) {
             return Err(throw(2));
         }
 
-        int symbol_index_s1 = 0;
-        try(ts_get_symbol_index(self, &symbol_index_s1));
+        int symbol_index = 0;
+        try(ts_get_symbol_index(self, &symbol_index));
 
-        Symbol retreived_symbol_2 = try_cast(Symbol, st_get_index(symbol_index_s1));
+        Symbol retreived_symbol = try_cast(Symbol, st_get_index(symbol_index));
 
-        if (retreived_symbol_2.kind != SymbolKind_Var) {
+        if (retreived_symbol.kind != SymbolKind_Var) {
             return Err(throw(8));
         }
 
         ts_next(self);
         ts_emit(self, Instruction_SYS, Syscall_Read);
-        ts_emit(self, Instruction_STO, retreived_symbol_2.addr);
+        ts_emit(self, Instruction_STO, retreived_symbol.addr);
         break;
     }
     case TokenType_Write: {
@@ -791,7 +790,7 @@ MayFail ts_statement(TokenStream *self) {
     default: {
         TokenType this_token = ts_kind(self);
         char message[256];
-        snprintf(message, sizeof message, "Found unexpected token id: %d at iteration %d", this_token, self->iteration);
+        snprintf(message, sizeof message, "Error: Found unexpected token id: %d at iteration %d", this_token, self->iteration);
         return Err(message);
     }
     }

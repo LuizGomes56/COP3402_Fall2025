@@ -4,6 +4,7 @@
 // ! The original source `.rs` is commented in the bottom of this document
 
 /*
+ALSO USED IN ASSIGNMENT 3.
 Assignment:
     lex - Lexical Analyzer for PL/0
 
