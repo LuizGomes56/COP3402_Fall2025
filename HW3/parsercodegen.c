@@ -112,7 +112,7 @@ typedef enum OprCode {
     OprCode_MUL,
     OprCode_DIV,
     OprCode_EQL,
-    OprCode_NEG,
+    OprCode_NEQ,
     OprCode_LSS,
     OprCode_LEQ,
     OprCode_GTR,
@@ -195,7 +195,6 @@ typedef struct Token {
 /// @brief Emulating Rust behavior, but does not have `pcode` and `symbol_table` since they're
 /// static, so they're accessible anywhere.
 typedef struct TokenStream {
-    int iteration;
     Token *tokens;
     int len_tokens;
 } TokenStream;
@@ -274,7 +273,7 @@ char *throw(int code) {
     case 19:
         return "Error: Symbol is no longer usable (mark = 1, maybe it is out of scope?)";
     case 20:
-        return "Error: Expected identifier after 'even'";
+        return "Error: Unexpected token sequence after 'even'";
     default:
         return "Error: Unknown error code passed to 'throw' function";
     }
@@ -665,9 +664,9 @@ MayFail ts_var_declaration(TokenStream *self, int *count) {
         if (ts_kind(self) != TokenType_Semicolon) {
             return Err(throw(6));
         }
+        ts_next(self);
     }
 
-    ts_next(self);
     return Ok(NULL);
 }
 
@@ -753,7 +752,7 @@ MayFail ts_statement(TokenStream *self) {
         int jpc_index = PCODE_LEN;
 
         ts_emit(self, Instruction_JPC, 0);
-        ts_statement(self);
+        try(ts_statement(self));
         ts_emit(self, Instruction_JMP, loop_index);
 
         pcode[jpc_index].M = PCODE_LEN;
@@ -790,7 +789,7 @@ MayFail ts_statement(TokenStream *self) {
     default: {
         TokenType this_token = ts_kind(self);
         char message[256];
-        snprintf(message, sizeof message, "Error: Found unexpected token id: %d at iteration %d", this_token, self->iteration);
+        snprintf(message, sizeof message, "Error: Found unexpected token id: %d at iteration %d", this_token, TS_ITERATION);
         return Err(message);
     }
     }
@@ -818,7 +817,7 @@ MayFail ts_condition(TokenStream *self) {
     case TokenType_Neq: {
         ts_next(self);
         try(ts_expression(self));
-        ts_emit(self, Instruction_OPR, OprCode_NEG);
+        ts_emit(self, Instruction_OPR, OprCode_NEQ);
         break;
     }
     case TokenType_Les: {
@@ -846,7 +845,7 @@ MayFail ts_condition(TokenStream *self) {
         break;
     }
     default: {
-        return Err(throw(15));
+        return Err(throw(13));
     }
     }
     return Ok(NULL);
@@ -857,7 +856,7 @@ MayFail ts_expression(TokenStream *self) {
         ts_next(self);
 
         try(ts_term(self));
-        ts_emit(self, Instruction_OPR, OprCode_NEG);
+        ts_emit(self, Instruction_OPR, OprCode_NEQ);
 
         while (ts_kind(self) == TokenType_Plus || ts_kind(self) == TokenType_Minus) {
             if (ts_kind(self) == TokenType_Plus) {
