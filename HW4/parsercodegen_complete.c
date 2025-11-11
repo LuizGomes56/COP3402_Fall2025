@@ -1,38 +1,35 @@
 /*
 Assignment:
-    HW3 - Parser and Code Generator for PL/0
-
-Author(s): Luiz Gustavo Santana Dias Gomes
+HW4 - Complete Parser and Code Generator for PL/0
+(with Procedures, Call, and Else)
+Author(s): Luiz Gusatvo Santana Dias Gomes
 Language: C (only)
-
 To Compile:
-    Scanner:
-        gcc -O2 -std=c11 -o lex lex.c
-    Parser/Code Generator:
-        gcc -O2 -std=c11 -o parsercodegen parsercodegen.c
-    To Execute (on Eustis):
-        ./lex <input_file.txt>
-        ./parsercodegen
-    where:
-        <input_file.txt> is the path to the PL/0 source program
-
+Scanner:
+gcc -O2 -std=c11 -o lex lex.c
+Parser/Code Generator:
+gcc -O2 -std=c11 -o parsercodegen_complete parsercodegen_complete.c
+Virtual Machine:
+gcc -O2 -std=c11 -o vm vm.c
+To Execute (on Eustis):
+./lex <input_file.txt>
+./parsercodegen_complete
+./vm elf.txt
+where:
+<input_file.txt> is the path to the PL/0 source program
 Notes:
-    - lex.c accepts ONE command-line argument (input PL/0 source file)
-    - parsercodegen.c accepts NO command-line arguments
-    - Input filename is hard-coded in parsercodegen.c
-    - Implements recursive-descent parser for PL/0 grammar
-    - Generates PM/0 assembly code (see Appendix A for ISA)
-    - All development and testing performed on Eustis
-
-    Class: COP3402 - System Software - Fall 2025
-
+- lex.c accepts ONE command-line argument (input PL/0 source file)
+- parsercodegen_complete.c accepts NO command-line arguments
+- Input filename is hard-coded in parsercodegen_complete.c
+- Implements recursive-descent parser for extended PL/0 grammar
+- Supports procedures, call statements, and if-then-else
+- Generates PM/0 assembly code (see Appendix A for ISA)
+- VM must support EVEN instruction (OPR 0 11)
+- All development and testing performed on Eustis
+Class: COP3402 - System Software - Fall 2025
 Instructor: Dr. Jie Lin
-Due Date: Friday, October 31, 2025 at 11:59 PM ET
+Due Date: Friday, November 21, 2025 at 11:59 PM ET
 */
-
-// ! No AI usage; Sources = GOOGLE
-// ! This is a literal translation from my Rust source code.
-// ! (commented at the end of this file)
 
 #include <ctype.h>
 #include <stdio.h>
@@ -212,9 +209,10 @@ TokenType ts_kind(TokenStream *self);
 TokenType ts_next(TokenStream *self);
 MayFail ts_get_symbol_index(TokenStream *self, int *out_index);
 MayFail ts_program(TokenStream *self);
-MayFail ts_block(TokenStream *self);
+MayFail ts_block(TokenStream *self, int level);
 MayFail ts_const_declaration(TokenStream *self);
 MayFail ts_var_declaration(TokenStream *self, int *count);
+MayFail ts_procedure_declaration(TokenStream *self, int *instr_emmited);
 MayFail ts_statement(TokenStream *self);
 MayFail ts_condition(TokenStream *self);
 MayFail ts_expression(TokenStream *self);
@@ -268,6 +266,12 @@ char *throw(int code) {
     /// Internal error
     case 17:
         return "Error: Assertion (iteration >= self->len_tokens) failed [IOB]";
+    // TODO;
+    case 0xFF:
+        return "call statement may only target procedures";
+    // Todo;
+    case 0xFE:
+        return "procedure declaration must be followed by a semicolon";
     case 18:
         return "Error: Symbol table indexation failed: Index out of bounds";
     case 19:
@@ -359,7 +363,7 @@ MayFail st_get_index(int index) {
 /// @return `struct MayFail` with `void*` null
 /// Loop backwards
 MayFail st_find_index_or_throw(const char *name, int code, int *out_index) {
-    for (int i = SYMBOL_TABLE_LEN - 1; i >= 0; i--) {
+    for (int i = 0; i < SYMBOL_TABLE_LEN; i++) {
         if (strcmp(symbol_table[i].name, name) == 0) {
             *out_index = i;
             return Ok(NULL);
@@ -375,50 +379,18 @@ void st_push_symbol(Symbol symbol) {
     SYMBOL_TABLE_LEN++;
 }
 
-/// @brief Pushes a constant to the symbol table
-/// @param name Constant ident name
-/// @param value Its literal value
+/// @brief Pushes a value to the symbol table, checking if it already exists
+/// @param symbol Symbol definition
 /// @return `struct MayFail`. Fails if the symbol already exists. `void*` is of type `int`
 /// representing the index of the symbol that was just inserted
-MayFail st_push_const(char *name, int value) {
+MayFail st_push_value(Symbol symbol) {
     int out_index = 0;
-    MayFail fail = st_find_index_or_throw(name, 3, &out_index);
+    MayFail fail = st_find_index_or_throw(symbol.name, 3, &out_index);
     if (fail.is_error) {
-        Symbol symbol_value = {
-            .kind = SymbolKind_Const,
-            .val = value,
-            .level = 0,
-            .addr = 0,
-            .mark = 0,
-        };
-        strncpy(symbol_value.name, name, sizeof symbol_value.name - 1);
-        st_push_symbol(symbol_value);
+        st_push_symbol(symbol);
         return Ok(NULL);
     } else {
-        return Err(throw(3));
-    }
-}
-
-/// @brief Pushes a variable to the symbol table
-/// @param name Variable ident name
-/// @param addr Address of the variable
-/// @return `struct MayFail`. Fails if the symbol already exists. `void*` is of type `int`
-/// representing the index of the symbol that was just inserted
-MayFail st_push_var(char *name, int addr) {
-    int out_index = 0;
-    MayFail fail = st_find_index_or_throw(name, 3, &out_index);
-    if (fail.is_error) {
-        Symbol symbol_value = {
-            .kind = SymbolKind_Var,
-            .val = 0,
-            .level = 0,
-            .addr = addr,
-            .mark = 0,
-        };
-        strncpy(symbol_value.name, name, sizeof symbol_value.name - 1);
-        st_push_symbol(symbol_value);
-        return Ok(NULL);
-    } else {
+        st_print();
         return Err(throw(3));
     }
 }
@@ -492,10 +464,10 @@ void pcode_elf() {
 /// @param self `TokenStream` adapt
 /// @param instr Instruction code
 /// @param M M value
-void ts_emit(TokenStream *self, Instruction instr, int M) {
+void ts_emit(TokenStream *self, Instruction instr, int level, int M) {
     Register reg = {
         .OP = instr,
-        .L = 0,
+        .L = level,
         .M = M,
     };
     pcode[PCODE_LEN] = reg;
@@ -568,7 +540,8 @@ MayFail ts_program(TokenStream *self) {
         return Err(throw(1));
     }
 
-    try(ts_block(self));
+    try(ts_block(self, 0));
+    ts_emit(self, Instruction_SYS, 0, Syscall_Halt);
 
     /// Update field `mark` for every variable in Symbol table
     for (int i = 0; i < SYMBOL_TABLE_LEN; i++) {
@@ -580,16 +553,20 @@ MayFail ts_program(TokenStream *self) {
 
 /// @brief Parses `block`
 /// @return `struct MayFail` with `void*` null
-MayFail ts_block(TokenStream *self) {
+MayFail ts_block(TokenStream *self, int level) {
     try(ts_const_declaration(self));
 
     int number_of_vars = 0;
 
     try(ts_var_declaration(self, &number_of_vars));
-    ts_emit(self, Instruction_INC, number_of_vars + 3);
+
+    int instr_emmited = 0;
+    try(ts_procedure_declaration(self, &instr_emmited));
+
+    ts_emit(self, Instruction_JMP, 0, instr_emmited * 3);
+    ts_emit(self, Instruction_INC, 0, number_of_vars + 3);
 
     try(ts_statement(self));
-    ts_emit(self, Instruction_SYS, Syscall_Halt);
 
     return Ok(NULL);
 }
@@ -609,7 +586,19 @@ MayFail ts_const_declaration(TokenStream *self) {
                 return Err(throw(3));
             }
 
-            try(st_push_const(ident_name, 0));
+            Symbol symbol_value = {
+                .name = {0},
+                .kind = SymbolKind_Const,
+                .val = 0,
+                .level = 0,
+                .addr = 0,
+                .mark = 0,
+            };
+
+            memcpy(symbol_value.name, ident_name, sizeof symbol_value.name);
+            symbol_value.name[sizeof symbol_value.name - 1] = '\0';
+
+            try(st_push_value(symbol_value));
             int ident_offset = SYMBOL_TABLE_LEN - 1;
 
             TokenType token_d1 = ts_next(self);
@@ -657,7 +646,19 @@ MayFail ts_var_declaration(TokenStream *self, int *count) {
                 return Err(throw(3));
             }
 
-            try(st_push_var(ident_name, *count + 2));
+            Symbol symbol_value = {
+                .name = {0},
+                .kind = SymbolKind_Var,
+                .val = 0,
+                .level = 0,
+                .addr = *count + 2,
+                .mark = 0,
+            };
+
+            memcpy(symbol_value.name, ident_name, sizeof symbol_value.name);
+            symbol_value.name[sizeof symbol_value.name - 1] = '\0';
+
+            try(st_push_value(symbol_value));
 
             ts_next(self);
         } while (ts_kind(self) == TokenType_Comma);
@@ -668,6 +669,51 @@ MayFail ts_var_declaration(TokenStream *self, int *count) {
         ts_next(self);
     }
 
+    return Ok(NULL);
+}
+
+MayFail ts_procedure_declaration(TokenStream *self, int *instr_emmited) {
+    int level = 0;
+    int start = PCODE_LEN;
+    while (ts_kind(self) == TokenType_Proc) {
+        ts_emit(self, Instruction_JMP, 0, 3 * (level + 2));
+
+        if (ts_next(self) != TokenType_Ident) {
+            return Err("Expected identifier after proc");
+        }
+
+        Token token = ts_token(self);
+
+        if (ts_next(self) != TokenType_Semicolon) {
+            return Err("Expected semicolon after procedure name");
+        }
+
+        ts_next(self);
+        Symbol symbol_value = {
+            .name = {0},
+            .kind = SymbolKind_Proc,
+            .val = 0,
+            .level = level,
+            .addr = PCODE_LEN,
+            .mark = 0,
+        };
+
+        memcpy(symbol_value.name, token.meta, sizeof symbol_value.name);
+        symbol_value.name[sizeof symbol_value.name - 1] = '\0';
+
+        try(st_push_value(symbol_value));
+        try(ts_block(self, level + 1));
+
+        if (ts_kind(self) != TokenType_Semicolon) {
+            return Err("Expected semicolon");
+        }
+
+        ts_emit(self, Instruction_OPR, level, 0);
+        ts_next(self);
+        level++;
+    }
+    int end = PCODE_LEN;
+    *instr_emmited = end - start;
     return Ok(NULL);
 }
 
@@ -695,7 +741,7 @@ MayFail ts_statement(TokenStream *self) {
 
         ts_next(self);
         try(ts_expression(self));
-        ts_emit(self, Instruction_STO, retreived_symbol.addr);
+        ts_emit(self, Instruction_STO, 0, retreived_symbol.addr);
         break;
     }
     case TokenType_Begin: {
@@ -721,7 +767,7 @@ MayFail ts_statement(TokenStream *self) {
 
         try(ts_condition(self));
         int jpc_index = PCODE_LEN;
-        ts_emit(self, Instruction_JPC, 0);
+        ts_emit(self, Instruction_JPC, 0, 0);
 
         if (ts_kind(self) != TokenType_Then) {
             return Err(throw(11));
@@ -752,9 +798,9 @@ MayFail ts_statement(TokenStream *self) {
 
         int jpc_index = PCODE_LEN;
 
-        ts_emit(self, Instruction_JPC, 0);
+        ts_emit(self, Instruction_JPC, 0, 0);
         try(ts_statement(self));
-        ts_emit(self, Instruction_JMP, loop_index);
+        ts_emit(self, Instruction_JMP, 0, loop_index);
 
         pcode[jpc_index].M = PCODE_LEN;
         break;
@@ -776,21 +822,40 @@ MayFail ts_statement(TokenStream *self) {
         }
 
         ts_next(self);
-        ts_emit(self, Instruction_SYS, Syscall_Read);
-        ts_emit(self, Instruction_STO, retreived_symbol.addr);
+        ts_emit(self, Instruction_SYS, 0, Syscall_Read);
+        ts_emit(self, Instruction_STO, 0, retreived_symbol.addr);
         break;
     }
     case TokenType_Write: {
         ts_next(self);
         try(ts_expression(self));
 
-        ts_emit(self, Instruction_SYS, Syscall_Write);
+        ts_emit(self, Instruction_SYS, 0, Syscall_Write);
         break;
+    }
+    case TokenType_Call: {
+        if (ts_next(self) != TokenType_Ident) {
+            return Err("Expected identifier after call");
+        }
+        int index = 0;
+        try(ts_get_symbol_index(self, &index));
+        Symbol symbol = try_cast(Symbol, st_get_index(index));
+        if (symbol.kind != SymbolKind_Proc) {
+            return Err("Expected identifier after call statement to be a procedure");
+        }
+        ts_emit(self, Instruction_CAL, symbol.level, symbol.addr);
+        ts_next(self);
+        break;
+    }
+    case TokenType_Proc: {
+        printf("Unsopported proc item");
+        return Err("Unsupported Proc token");
     }
     default: {
         TokenType this_token = ts_kind(self);
-        char message[256];
-        snprintf(message, sizeof message, "Error: Found unexpected token id: %d at iteration %d", this_token, TS_ITERATION);
+        char *message = malloc(256);
+        snprintf(message, 256, "Error: Found unexpected token id: %d at iteration %d", this_token, TS_ITERATION);
+        printf("Error [default]: %s\n", message);
         return Err(message);
     }
     }
@@ -802,7 +867,7 @@ MayFail ts_condition(TokenStream *self) {
     if (ts_kind(self) == TokenType_Even) {
         ts_next(self);
         try(ts_expression(self));
-        ts_emit(self, Instruction_OPR, OprCode_EVEN);
+        ts_emit(self, Instruction_OPR, 0, OprCode_EVEN);
         return Ok(NULL);
     }
 
@@ -812,37 +877,37 @@ MayFail ts_condition(TokenStream *self) {
     case TokenType_Eq: {
         ts_next(self);
         try(ts_expression(self));
-        ts_emit(self, Instruction_OPR, OprCode_EQL);
+        ts_emit(self, Instruction_OPR, 0, OprCode_EQL);
         break;
     }
     case TokenType_Neq: {
         ts_next(self);
         try(ts_expression(self));
-        ts_emit(self, Instruction_OPR, OprCode_NEQ);
+        ts_emit(self, Instruction_OPR, 0, OprCode_NEQ);
         break;
     }
     case TokenType_Les: {
         ts_next(self);
         try(ts_expression(self));
-        ts_emit(self, Instruction_OPR, OprCode_LSS);
+        ts_emit(self, Instruction_OPR, 0, OprCode_LSS);
         break;
     }
     case TokenType_Leq: {
         ts_next(self);
         try(ts_expression(self));
-        ts_emit(self, Instruction_OPR, OprCode_LEQ);
+        ts_emit(self, Instruction_OPR, 0, OprCode_LEQ);
         break;
     }
     case TokenType_Gtr: {
         ts_next(self);
         try(ts_expression(self));
-        ts_emit(self, Instruction_OPR, OprCode_GTR);
+        ts_emit(self, Instruction_OPR, 0, OprCode_GTR);
         break;
     }
     case TokenType_Geq: {
         ts_next(self);
         try(ts_expression(self));
-        ts_emit(self, Instruction_OPR, OprCode_GEQ);
+        ts_emit(self, Instruction_OPR, 0, OprCode_GEQ);
         break;
     }
     default: {
@@ -857,17 +922,17 @@ MayFail ts_expression(TokenStream *self) {
         ts_next(self);
 
         try(ts_term(self));
-        ts_emit(self, Instruction_OPR, OprCode_NEQ);
+        ts_emit(self, Instruction_OPR, 0, OprCode_NEQ);
 
         while (ts_kind(self) == TokenType_Plus || ts_kind(self) == TokenType_Minus) {
             if (ts_kind(self) == TokenType_Plus) {
                 ts_next(self);
                 try(ts_term(self));
-                ts_emit(self, Instruction_OPR, OprCode_ADD);
+                ts_emit(self, Instruction_OPR, 0, OprCode_ADD);
             } else {
                 ts_next(self);
                 try(ts_term(self));
-                ts_emit(self, Instruction_OPR, OprCode_SUB);
+                ts_emit(self, Instruction_OPR, 0, OprCode_SUB);
             }
         }
     } else {
@@ -881,11 +946,11 @@ MayFail ts_expression(TokenStream *self) {
             if (ts_kind(self) == TokenType_Plus) {
                 ts_next(self);
                 try(ts_term(self));
-                ts_emit(self, Instruction_OPR, OprCode_ADD);
+                ts_emit(self, Instruction_OPR, 0, OprCode_ADD);
             } else {
                 ts_next(self);
                 try(ts_term(self));
-                ts_emit(self, Instruction_OPR, OprCode_SUB);
+                ts_emit(self, Instruction_OPR, 0, OprCode_SUB);
             }
         }
     }
@@ -900,11 +965,11 @@ MayFail ts_term(TokenStream *self) {
         if (ts_kind(self) == TokenType_Mult) {
             ts_next(self);
             try(ts_factor(self));
-            ts_emit(self, Instruction_OPR, OprCode_MUL);
+            ts_emit(self, Instruction_OPR, 0, OprCode_MUL);
         } else {
             ts_next(self);
             try(ts_factor(self));
-            ts_emit(self, Instruction_OPR, OprCode_DIV);
+            ts_emit(self, Instruction_OPR, 0, OprCode_DIV);
         }
     }
 
@@ -924,16 +989,16 @@ MayFail ts_factor(TokenStream *self) {
         Symbol this_symbol = try_cast(Symbol, st_get_index(symbol_index));
 
         if (this_symbol.kind == SymbolKind_Const) {
-            ts_emit(self, Instruction_LIT, this_symbol.val);
+            ts_emit(self, Instruction_LIT, 0, this_symbol.val);
         } else {
-            ts_emit(self, Instruction_LOD, this_symbol.addr);
+            ts_emit(self, Instruction_LOD, 0, this_symbol.addr);
         }
         ts_next(self);
         break;
     }
     case TokenType_Number: {
         int value = token_get_number(ts_token(self));
-        ts_emit(self, Instruction_LIT, value);
+        ts_emit(self, Instruction_LIT, 0, value);
         ts_next(self);
         break;
     }
@@ -998,6 +1063,11 @@ Token token_from_str(const char *line) {
 int main() {
     FILE *file_ptr = fopen("tokens.txt", "r");
 
+    if (file_ptr == NULL) {
+        printf("Error: Could not read tokens.txt file. Check its encoding or if it exists");
+        return 0;
+    }
+
     Token *tokens = NULL;
     /// Capacity and length of token list initialized to 0
     int len = 0, cap = 0;
@@ -1036,9 +1106,6 @@ int main() {
 
     /// Same as creating the TokenStream type: TokenStream::from(tokens)
     TokenStream token_stream = {.tokens = tokens, .len_tokens = len};
-
-    /// Emit the hardcoded instruction of JMP 0 3
-    ts_emit(&token_stream, Instruction_JMP, 3);
 
     /// Start program execution
     MayFail program = ts_program(&token_stream);

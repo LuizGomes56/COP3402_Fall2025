@@ -50,7 +50,7 @@ struct InstRegister {
     M: usize,
 }
 
-fn main() {
+pub fn vm() {
     // Static muts are not allowed, so an unsafe block is necessary
     unsafe {
         // Last M word (Lowest address used by code)

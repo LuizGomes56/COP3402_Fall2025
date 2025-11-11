@@ -7,9 +7,7 @@ use std::{
 };
 
 macro_rules! throw {
-    ($code:expr) => {{
-        MayFail::Err(throw($code).into())
-    }};
+    ($code:expr) => {{ MayFail::Err(throw($code).into()) }};
 }
 
 macro_rules! impl_usize_cast {
@@ -791,8 +789,17 @@ impl PartialEq<TokenType> for &Token {
     }
 }
 
-fn main() -> MayFail {
-    let file = std::fs::read_to_string("tokens.txt")?;
+pub fn parsercodegen() -> MayFail {
+    let file_path = std::path::Path::new("tokens.txt");
+    if !file_path.exists() {
+        return Err("File does not exist".into());
+    }
+
+    let file = std::fs::read_to_string(file_path)?;
+
+    if file.len() < 4 {
+        return Err("Reading file failed".into());
+    }
 
     let tokens = file
         .lines()

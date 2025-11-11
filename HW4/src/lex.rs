@@ -55,7 +55,7 @@ enum TokenType {
     Even,      // even
 }
 
-fn main() {
+pub fn lex() {
     // Prompt:
     /*
     - ChatGPT 5 Thinking:

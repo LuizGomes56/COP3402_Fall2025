@@ -2,4 +2,9 @@ mod lex;
 mod parsercodegen;
 mod vm;
 
-fn main() {}
+type MayFail<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
+fn main() -> MayFail {
+    lex::lex();
+    parsercodegen::parsercodegen()
+}
