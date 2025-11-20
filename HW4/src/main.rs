@@ -6,5 +6,6 @@ type MayFail<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 fn main() -> MayFail {
     lex::lex();
-    parsercodegen::parsercodegen()
+    Ok(())
+    // parsercodegen::parsercodegen()
 }

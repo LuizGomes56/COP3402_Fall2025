@@ -221,4 +221,24 @@ pub fn lex() {
         );
     }
     println!();
+
+    let tokens = result
+        .iter()
+        .map(|(token_type, token_data)| {
+            format!(
+                "{} \n",
+                match token_type {
+                    // Literals and identifiers are printed with their token_data
+                    // any other ones are just the numeric representation of token_type
+                    TokenType::Ident | TokenType::Number => {
+                        format!("{} {}", *token_type as usize, token_data)
+                    }
+                    _ => format!("{}", *token_type as usize),
+                }
+            )
+        })
+        .collect::<Vec<String>>()
+        .join("");
+
+    std::fs::write("tokens.txt", tokens).unwrap();
 }

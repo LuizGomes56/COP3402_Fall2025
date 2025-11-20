@@ -76,7 +76,7 @@ typedef struct MayFail {
     /// @brief Can be anything after all. A pointer that points to anything
     void *value;
     /// @brief If `is_error` is true, this is a pointer to a string
-    const char *error_message;
+    char *error_message;
 } MayFail;
 
 typedef struct Symbol {
@@ -200,6 +200,8 @@ typedef struct TokenStream {
 static Register pcode[MAX_PCODE_SIZE];
 
 static int PCODE_LEN = 0;
+static int LEVEL = 0;
+static int NUM_PROCS = 0;
 
 /// @brief Same as `self.iteration`
 static int TS_ITERATION = 0;
@@ -209,10 +211,10 @@ TokenType ts_kind(TokenStream *self);
 TokenType ts_next(TokenStream *self);
 MayFail ts_get_symbol_index(TokenStream *self, int *out_index);
 MayFail ts_program(TokenStream *self);
-MayFail ts_block(TokenStream *self, int level);
+MayFail ts_block(TokenStream *self);
 MayFail ts_const_declaration(TokenStream *self);
 MayFail ts_var_declaration(TokenStream *self, int *count);
-MayFail ts_procedure_declaration(TokenStream *self, int *instr_emmited);
+MayFail ts_procedure_declaration(TokenStream *self);
 MayFail ts_statement(TokenStream *self);
 MayFail ts_condition(TokenStream *self);
 MayFail ts_expression(TokenStream *self);
@@ -220,6 +222,7 @@ MayFail ts_term(TokenStream *self);
 MayFail ts_factor(TokenStream *self);
 MayFail ts_get_token(TokenStream *self, int iteration);
 int token_get_number(Token token);
+void dbg_symbol(Symbol symbol);
 
 /// Error codes defined in the assignment details
 char *throw(int code) {
@@ -233,7 +236,7 @@ char *throw(int code) {
     case 1:
         return "Error: program must end with period";
     case 2:
-        return "Error: const, var, and read keywords must be followed by identifier";
+        return "Error: const, var, read, procedure, and call keywords must be followed by identifier";
     case 3:
         return "Error: symbol name has already been declared";
     case 4:
@@ -260,24 +263,23 @@ char *throw(int code) {
         return "Error: right parenthesis must follow left parenthesis";
     case 15:
         return "Error: arithmetic equations must contain operands, parentheses, numbers, or symbols";
-    /// Custom error I added since I noticed that this "if-then" error was missing
-    case 16:
-        return "Error: if must have a condition and be followed by fi";
-    /// Internal error
+    /// Case "16" error was added in HW4 assignment and HW1 had a custom error type
     case 17:
         return "Error: Assertion (iteration >= self->len_tokens) failed [IOB]";
-    // TODO;
-    case 0xFF:
-        return "call statement may only target procedures";
-    // Todo;
-    case 0xFE:
-        return "procedure declaration must be followed by a semicolon";
     case 18:
         return "Error: Symbol table indexation failed: Index out of bounds";
     case 19:
         return "Error: Symbol is no longer usable (mark = 1, maybe it is out of scope?)";
     case 20:
         return "Error: Unexpected token sequence after 'even'";
+    case 21:
+        return "Error: else must be followed by fi";
+    case 22:
+        return "Error: if statement must include else clause";
+    case 23:
+        return "Error: procedure declaration must be followed by a semicolon";
+    case 24:
+        return "Error: call statement may only target procedures";
     default:
         return "Error: Unknown error code passed to 'throw' function";
     }
@@ -339,7 +341,9 @@ void st_print() {
 /// @return `int` 1 for true, 0 for false
 int st_has_symbol(char *name) {
     for (int i = 0; i < SYMBOL_TABLE_LEN; i++) {
-        if (strcmp(symbol_table[i].name, name) == 0) {
+        Symbol symbol = symbol_table[i];
+        // dbg_symbol(symbol);
+        if (strcmp(symbol.name, name) == 0 && symbol.mark == 0 && symbol.level == LEVEL) {
             return 1;
         }
     }
@@ -362,9 +366,12 @@ MayFail st_get_index(int index) {
 /// @param out_index Variable where the index will be assigned, if it exists
 /// @return `struct MayFail` with `void*` null
 /// Loop backwards
-MayFail st_find_index_or_throw(const char *name, int code, int *out_index) {
+MayFail st_find_index_or_throw(char *name, int code, int *out_index) {
+    // printf("Looking for symbol [name]: %s\n", name);
     for (int i = 0; i < SYMBOL_TABLE_LEN; i++) {
-        if (strcmp(symbol_table[i].name, name) == 0) {
+        Symbol symbol = symbol_table[i];
+        // dbg_symbol(symbol);
+        if (strcmp(symbol.name, name) == 0 && symbol.mark == 0) {
             *out_index = i;
             return Ok(NULL);
         }
@@ -384,13 +391,13 @@ void st_push_symbol(Symbol symbol) {
 /// @return `struct MayFail`. Fails if the symbol already exists. `void*` is of type `int`
 /// representing the index of the symbol that was just inserted
 MayFail st_push_value(Symbol symbol) {
-    int out_index = 0;
-    MayFail fail = st_find_index_or_throw(symbol.name, 3, &out_index);
+    int *out_index = malloc(sizeof(int));
+    MayFail fail = st_find_index_or_throw(symbol.name, 3, out_index);
     if (fail.is_error) {
         st_push_symbol(symbol);
-        return Ok(NULL);
+        return Ok(out_index);
     } else {
-        st_print();
+        // st_print();
         return Err(throw(3));
     }
 }
@@ -515,6 +522,7 @@ TokenType ts_next(TokenStream *self) {
 MayFail ts_get_symbol_index(TokenStream *self, int *out_index) {
     Token token = ts_token(self);
     char *meta = token.meta;
+    // printf("Meta: %s ", meta);
     try(st_find_index_or_throw(meta, 7, out_index));
     return Ok(NULL);
 }
@@ -540,33 +548,48 @@ MayFail ts_program(TokenStream *self) {
         return Err(throw(1));
     }
 
-    try(ts_block(self, 0));
+    try(ts_block(self));
     ts_emit(self, Instruction_SYS, 0, Syscall_Halt);
-
-    /// Update field `mark` for every variable in Symbol table
-    for (int i = 0; i < SYMBOL_TABLE_LEN; i++) {
-        symbol_table[i].mark = 1;
-    }
 
     return Ok(NULL);
 }
 
 /// @brief Parses `block`
 /// @return `struct MayFail` with `void*` null
-MayFail ts_block(TokenStream *self, int level) {
+MayFail ts_block(TokenStream *self) {
     try(ts_const_declaration(self));
 
     int number_of_vars = 0;
 
     try(ts_var_declaration(self, &number_of_vars));
 
-    int instr_emmited = 0;
-    try(ts_procedure_declaration(self, &instr_emmited));
+    int start = PCODE_LEN;
+    // printf("Start at index: %d\n", start);
+    try(ts_procedure_declaration(self));
+    int end = PCODE_LEN;
+    int instr_emmited = end - start;
 
-    ts_emit(self, Instruction_JMP, 0, instr_emmited * 3);
+    if (LEVEL != 0) {
+        pcode[start].M = (instr_emmited + NUM_PROCS) * 3;
+
+        ts_emit(self, Instruction_JMP, 0, 3 + 3 * NUM_PROCS);
+    } else {
+        pcode[start].M = instr_emmited * 3;
+    }
     ts_emit(self, Instruction_INC, 0, number_of_vars + 3);
 
+    // printf("Starting statement after proc decl, level: %d, LEN: %d\n", LEVEL, PCODE_LEN);
+    // pcode_print();
+
     try(ts_statement(self));
+
+    /// Update field `mark` for every variable in Symbol table
+    for (int i = 0; i < SYMBOL_TABLE_LEN; i++) {
+        if (symbol_table[i].level != LEVEL) {
+            continue;
+        }
+        symbol_table[i].mark = 1;
+    }
 
     return Ok(NULL);
 }
@@ -590,7 +613,7 @@ MayFail ts_const_declaration(TokenStream *self) {
                 .name = {0},
                 .kind = SymbolKind_Const,
                 .val = 0,
-                .level = 0,
+                .level = LEVEL,
                 .addr = 0,
                 .mark = 0,
             };
@@ -650,7 +673,7 @@ MayFail ts_var_declaration(TokenStream *self, int *count) {
                 .name = {0},
                 .kind = SymbolKind_Var,
                 .val = 0,
-                .level = 0,
+                .level = LEVEL,
                 .addr = *count + 2,
                 .mark = 0,
             };
@@ -672,20 +695,19 @@ MayFail ts_var_declaration(TokenStream *self, int *count) {
     return Ok(NULL);
 }
 
-MayFail ts_procedure_declaration(TokenStream *self, int *instr_emmited) {
-    int level = 0;
-    int start = PCODE_LEN;
+MayFail ts_procedure_declaration(TokenStream *self) {
     while (ts_kind(self) == TokenType_Proc) {
-        ts_emit(self, Instruction_JMP, 0, 3 * (level + 2));
+        NUM_PROCS++;
+        ts_emit(self, Instruction_JMP, 0, 3 * (LEVEL + 2));
 
         if (ts_next(self) != TokenType_Ident) {
-            return Err("Expected identifier after proc");
+            return Err(throw(2));
         }
 
         Token token = ts_token(self);
 
         if (ts_next(self) != TokenType_Semicolon) {
-            return Err("Expected semicolon after procedure name");
+            return Err(throw(23));
         }
 
         ts_next(self);
@@ -693,8 +715,8 @@ MayFail ts_procedure_declaration(TokenStream *self, int *instr_emmited) {
             .name = {0},
             .kind = SymbolKind_Proc,
             .val = 0,
-            .level = level,
-            .addr = PCODE_LEN,
+            .level = LEVEL,
+            .addr = 3 * PCODE_LEN,
             .mark = 0,
         };
 
@@ -702,25 +724,32 @@ MayFail ts_procedure_declaration(TokenStream *self, int *instr_emmited) {
         symbol_value.name[sizeof symbol_value.name - 1] = '\0';
 
         try(st_push_value(symbol_value));
-        try(ts_block(self, level + 1));
+        LEVEL += 1;
+        // puts("Entering block inside proc");
+        try(ts_block(self));
+        // puts("Left block of proc");
+        // printf("LEVEL: %d\n", LEVEL);
+        LEVEL -= 2;
+        // printf("[1] LEVEL: %d\n", LEVEL);
 
         if (ts_kind(self) != TokenType_Semicolon) {
-            return Err("Expected semicolon");
+            return Err("Error: Expected semicolon after block of procedure declaration");
         }
 
-        ts_emit(self, Instruction_OPR, level, 0);
+        LEVEL++;
+        ts_emit(self, Instruction_OPR, LEVEL, OprCode_RTN);
         ts_next(self);
-        level++;
     }
-    int end = PCODE_LEN;
-    *instr_emmited = end - start;
     return Ok(NULL);
 }
 
 MayFail ts_statement(TokenStream *self) {
+    Token t = ts_token(self);
+    // printf("Kind: %d, Meta: %s, Level: %d\n", t.kind, t.meta, LEVEL);
     switch (ts_kind(self)) {
     case TokenType_Ident: {
         int symbol_index = 0;
+        // st_print();
         try(ts_get_symbol_index(self, &symbol_index));
 
         Symbol retreived_symbol = try_cast(Symbol, st_get_index(symbol_index));
@@ -741,7 +770,7 @@ MayFail ts_statement(TokenStream *self) {
 
         ts_next(self);
         try(ts_expression(self));
-        ts_emit(self, Instruction_STO, 0, retreived_symbol.addr);
+        ts_emit(self, Instruction_STO, LEVEL - retreived_symbol.level, retreived_symbol.addr);
         break;
     }
     case TokenType_Begin: {
@@ -776,18 +805,31 @@ MayFail ts_statement(TokenStream *self) {
         ts_next(self);
         try(ts_statement(self));
 
+        if (ts_kind(self) != TokenType_Else) {
+            return Err(throw(22));
+        }
+
+        int jmp_index = PCODE_LEN;
+        ts_emit(self, Instruction_JMP, 0, 0);
+
+        pcode[jpc_index].M = 3 * PCODE_LEN;
+        ts_next(self);
+
+        try(ts_statement(self));
+
         if (ts_kind(self) != TokenType_Fi) {
-            return Err(throw(16));
+            return Err(throw(21));
         }
 
         ts_next(self);
-        pcode[jpc_index].M = PCODE_LEN;
+        pcode[jmp_index].M = 3 * PCODE_LEN;
+
         break;
     }
     case TokenType_While: {
         ts_next(self);
 
-        int loop_index = PCODE_LEN;
+        int loop_index = 3 * PCODE_LEN;
         try(ts_condition(self));
 
         if (ts_kind(self) != TokenType_Do) {
@@ -802,7 +844,7 @@ MayFail ts_statement(TokenStream *self) {
         try(ts_statement(self));
         ts_emit(self, Instruction_JMP, 0, loop_index);
 
-        pcode[jpc_index].M = PCODE_LEN;
+        pcode[jpc_index].M = 3 * PCODE_LEN;
         break;
     }
     case TokenType_Read: {
@@ -823,7 +865,7 @@ MayFail ts_statement(TokenStream *self) {
 
         ts_next(self);
         ts_emit(self, Instruction_SYS, 0, Syscall_Read);
-        ts_emit(self, Instruction_STO, 0, retreived_symbol.addr);
+        ts_emit(self, Instruction_STO, LEVEL - retreived_symbol.level, retreived_symbol.addr);
         break;
     }
     case TokenType_Write: {
@@ -835,27 +877,23 @@ MayFail ts_statement(TokenStream *self) {
     }
     case TokenType_Call: {
         if (ts_next(self) != TokenType_Ident) {
-            return Err("Expected identifier after call");
+            return Err(throw(2));
         }
         int index = 0;
         try(ts_get_symbol_index(self, &index));
         Symbol symbol = try_cast(Symbol, st_get_index(index));
         if (symbol.kind != SymbolKind_Proc) {
-            return Err("Expected identifier after call statement to be a procedure");
+            return Err(throw(24));
         }
-        ts_emit(self, Instruction_CAL, symbol.level, symbol.addr);
+        ts_emit(self, Instruction_CAL, LEVEL - symbol.level, symbol.addr);
         ts_next(self);
         break;
-    }
-    case TokenType_Proc: {
-        printf("Unsopported proc item");
-        return Err("Unsupported Proc token");
     }
     default: {
         TokenType this_token = ts_kind(self);
         char *message = malloc(256);
         snprintf(message, 256, "Error: Found unexpected token id: %d at iteration %d", this_token, TS_ITERATION);
-        printf("Error [default]: %s\n", message);
+        // printf("Error: [default] %s\n", message);
         return Err(message);
     }
     }
@@ -991,7 +1029,7 @@ MayFail ts_factor(TokenStream *self) {
         if (this_symbol.kind == SymbolKind_Const) {
             ts_emit(self, Instruction_LIT, 0, this_symbol.val);
         } else {
-            ts_emit(self, Instruction_LOD, 0, this_symbol.addr);
+            ts_emit(self, Instruction_LOD, LEVEL - this_symbol.level, this_symbol.addr);
         }
         ts_next(self);
         break;
@@ -1136,819 +1174,13 @@ int main() {
     return 0;
 }
 
-/*
-Rust file of origin. When the first code generation was successful, I translated it all to C,
-and did not update it afterwards.
-
-#![allow(non_snake_case, dead_code)]
-
-use std::{
-    fmt::Display,
-    ops::{Deref, DerefMut},
-};
-
-macro_rules! throw {
-    ($code:expr) => {
-        MayFail::Err(throw($code).into())
-    };
+void dbg_symbol(Symbol symbol) {
+    printf(
+        "Symbol: { Kind: %d, Name: %s, Value: %d, Level: %d, Address: %d, Mark: %d }\n",
+        symbol.kind,
+        symbol.name,
+        symbol.val,
+        symbol.level,
+        symbol.addr,
+        symbol.mark);
 }
-
-macro_rules! impl_usize_cast {
-    ($($enum:ty),*) => {
-        $(
-            impl From<$enum> for usize {
-                fn from(value: $enum) -> Self {
-                    value as usize
-                }
-            }
-        )*
-    };
-}
-
-impl_usize_cast!(TokenType, OprCode, Syscall);
-
-macro_rules! impl_derefs {
-    ($(($source:ty, $target:ty)),*) => {
-        $(
-            impl Deref for $source {
-                type Target = $target;
-
-                fn deref(&self) -> &Self::Target {
-                    &self.0
-                }
-            }
-
-            impl DerefMut for $source {
-                fn deref_mut(&mut self) -> &mut Self::Target {
-                    &mut self.0
-                }
-            }
-        )*
-    };
-}
-
-impl_derefs![(SymbolTable, Vec<Symbol>), (PCode, Vec<Register>)];
-
-fn throw(code: i32) -> &'static str {
-    match code {
-        1 => "Error: program must end with period",
-        2 => "Error: const, var, and read keywords must be followed by identifier",
-        3 => "Error: symbol name has already been declared",
-        4 => "Error: constants must be assigned with =",
-        5 => "Error: constants must be assigned an integer value",
-        6 => "Error: constant and variable declarations must be followed by a semicolon",
-        7 => "Error: undeclared identifier",
-        8 => "Error: only variable values may be altered",
-        9 => "Error: assignment statements must use :=",
-        10 => "Error: begin must be followed by end",
-        11 => "Error: if must be followed by then",
-        12 => "Error: while must be followed by do",
-        13 => "Error: condition must contain comparison operator",
-        14 => "Error: right parenthesis must follow left parenthesis",
-        15 => "Error: arithmetic equations must contain operands, parentheses, numbers, or symbols",
-        16 => "Error: if must have a condition and be followed by fi",
-        _ => unreachable!("Unknown error kind"),
-    }
-}
-
-enum OprCode {
-    RTN,
-    ADD,
-    SUB,
-    MUL,
-    DIV,
-    EQL,
-    NEG,
-    LSS,
-    LEQ,
-    GTR,
-    GEQ,
-    EVEN,
-}
-
-enum Syscall {
-    Write = 1,
-    Read,
-    Halt,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum TokenType {
-    Skip = 1,
-    Ident,
-    Number,
-    Plus,
-    Minus,
-    Mult,
-    Slash,
-    Eq,
-    Neq,
-    Les,
-    Leq,
-    Gtr,
-    Geq,
-    Lparent,
-    Rparent,
-    Comma,
-    Semicolon,
-    Period,
-    Becomes,
-    Begin,
-    End,
-    If,
-    Fi,
-    Then,
-    While,
-    Do,
-    Call,
-    Const,
-    Var,
-    Proc,
-    Write,
-    Read,
-    Else,
-    Even,
-}
-
-struct Register {
-    OP: Instruction,
-    L: usize,
-    M: usize,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum Instruction {
-    LIT = 1,
-    OPR,
-    LOD,
-    STO,
-    CAL,
-    INC,
-    JMP,
-    JPC,
-    SYS,
-}
-
-struct PCode(Vec<Register>);
-
-impl PCode {
-    fn new() -> Self {
-        Self(vec![Register {
-            OP: Instruction::JMP,
-            L: 0,
-            M: 3,
-        }])
-    }
-
-    fn print(&self) {
-        println!("{self}\n");
-    }
-
-    fn finish(self) -> MayFail {
-        let mut contents = String::new();
-        for register in self.iter() {
-            contents.push_str(&format!(
-                "{OP} {L} {M}\n",
-                OP = register.OP as usize,
-                L = register.L,
-                M = register.M
-            ));
-        }
-        Ok(std::fs::write("elf.txt", contents)?)
-    }
-}
-
-impl Display for PCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut contents = format!(
-            "Assembly Code:\n\n{:>4}{:>8}{:>8}{:>8}\n",
-            "Line", "OP", "L", "M"
-        );
-        let result = self
-            .iter()
-            .enumerate()
-            .map(|(index, register)| {
-                let op = format!("{:?}", register.OP);
-
-                format!(
-                    "{index:>3} {OP:>8}{L:>8}{M:>8}",
-                    OP = op,
-                    L = register.L,
-                    M = register.M
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        contents.push_str(&result);
-        write!(f, "{contents}")
-    }
-}
-
-type MayFail<T = ()> = Result<T, Box<dyn std::error::Error>>;
-
-struct SymbolTable(Vec<Symbol>);
-
-impl SymbolTable {
-    fn new() -> Self {
-        Self(Vec::new())
-    }
-
-    pub fn print(&self) {
-        println!(
-            "Symbol Table: \n\n{kind:<4} | {name:<11} | {value:<5} | {level:<5} | {addr:<7} | {mark:<4}",
-            kind = "Kind",
-            name = "Name",
-            value = "Value",
-            level = "Level",
-            addr = "Address",
-            mark = "Mark"
-        );
-        for _ in 0..51 {
-            print!("-");
-        }
-        println!();
-        for symbol in self.iter() {
-            print!(
-                "{kind:>4} | {name:>11} | {value:>5} | {level:>5} | {addr:>7} | {mark:>4}\n",
-                kind = symbol.kind as usize,
-                name = symbol.name,
-                value = symbol.value,
-                level = symbol.level,
-                addr = symbol.addr,
-                mark = symbol.mark as u8
-            );
-        }
-    }
-
-    fn has_symbol(&self, name: &str) -> bool {
-        self.iter().any(|symbol| symbol.name == name)
-    }
-
-    fn get_index(&self, index: usize) -> MayFail<&Symbol> {
-        self.get(index)
-            .ok_or(format!("Index {index} does not exist in SymbolTable").into())
-    }
-
-    fn find_index_or_throw(&self, name: &str, code: i32) -> MayFail<usize> {
-        Ok(self
-            .iter()
-            .enumerate()
-            .find(|(_, symbol)| symbol.name == name)
-            .map(|(index, _)| index)
-            .ok_or(throw(code))?)
-    }
-
-    fn push_symbol(&mut self, symbol: Symbol) {
-        self.push(symbol);
-    }
-
-    fn push_const(&mut self, name: String, value: usize) -> MayFail<usize> {
-        self.find_index_or_throw(&name, 3)?;
-        self.push_symbol(Symbol {
-            kind: SymbolKind::Const,
-            name,
-            value,
-            level: 0,
-            addr: 0,
-            mark: false,
-        });
-        Ok(self.len())
-    }
-
-    // In C translation, this function will never throw an error.
-    fn push_var(&mut self, name: String, addr: usize) -> MayFail<usize> {
-        match self.find_index_or_throw(&name, 3) {
-            Err(_) => {
-                self.push_symbol(Symbol {
-                    kind: SymbolKind::Var,
-                    name,
-                    addr,
-                    value: 0,
-                    level: 0,
-                    mark: false,
-                });
-                Ok(self.len())
-            }
-            Ok(_) => throw!(3),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum SymbolKind {
-    Const = 1,
-    Var,
-    Proc,
-}
-
-struct Symbol {
-    kind: SymbolKind,
-    name: String,
-    value: usize,
-    level: usize,
-    addr: usize,
-    mark: bool,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct Token {
-    kind: TokenType,
-    meta: Option<String>,
-}
-
-impl Token {
-    fn get_number(&self) -> MayFail<usize> {
-        match self.meta {
-            Some(ref meta) => Ok(meta.parse::<usize>()?),
-            None => Err("Called get_number() in a Token that is not TokenType::Number".into()),
-        }
-    }
-
-    fn get_meta(&self) -> MayFail<&String> {
-        Ok(self.meta.as_ref().ok_or(format!(
-            "Found a TokenType::{:?} without metadata",
-            self.kind
-        ))?)
-    }
-}
-
-impl From<TokenType> for Token {
-    fn from(value: TokenType) -> Self {
-        Self {
-            kind: value,
-            meta: None,
-        }
-    }
-}
-
-impl Into<TokenType> for Token {
-    fn into(self) -> TokenType {
-        self.kind
-    }
-}
-
-impl From<&str> for Token {
-    fn from(value: &str) -> Self {
-        let mut kind = TokenType::Skip;
-        let mut meta = None;
-        let parts = value.trim().split(" ");
-        for (index, part) in parts.enumerate() {
-            if part.len() > 11 {
-                continue;
-            }
-
-            match index {
-                0 => kind = unsafe { std::mem::transmute(part.parse::<u8>().unwrap()) },
-                1 => meta = Some(part.to_string()),
-                _ => unreachable!("More than two tokens found in a Token line"),
-            }
-        }
-        Self { kind, meta }
-    }
-}
-
-/// Every field in this struct will be transformed in a static mut.
-struct TokenStream {
-    iteration: usize,
-    tokens: Vec<Token>,
-    symbol_table: SymbolTable,
-    pcode: PCode,
-}
-
-impl TokenStream {
-    fn jpc_offset(&mut self) -> usize {
-        self.pcode.len() * 3
-    }
-
-    fn emit(&mut self, instruction: Instruction, M: impl Into<usize>) {
-        self.pcode.push(Register {
-            OP: instruction,
-            L: 0,
-            M: M.into(),
-        })
-    }
-
-    fn get_token(&self, iteration: usize) -> MayFail<&Token> {
-        assert!(iteration < self.tokens.len());
-        self.tokens
-            .get(iteration)
-            .ok_or(format!("Index {iteration} does not exist in TokenStream").into())
-    }
-
-    fn token(&self) -> &Token {
-        if self.iteration == self.tokens.len() {
-            panic!("TokenStream is out of tokens");
-        }
-        self.get_token(self.iteration).unwrap()
-    }
-
-    fn kind(&self) -> TokenType {
-        self.token().kind
-    }
-
-    fn next(&mut self) -> TokenType {
-        self.iteration += 1;
-        self.kind()
-    }
-
-    fn get_symbol_index(&self) -> MayFail<usize> {
-        self.symbol_table
-            .find_index_or_throw(self.token().get_meta()?, 7)
-    }
-
-    fn get_symbol(&self, symbol_index: usize) -> MayFail<&Symbol> {
-        self.symbol_table.get_index(symbol_index)
-    }
-
-    fn __dbg(&self) {
-        println!("---------------------------------------------------------------------------");
-        println!("[-2] token: {:?}", self.get_token(self.iteration - 2));
-        println!("Previous token: {:?}", self.get_token(self.iteration - 1));
-        println!("Current token:  {:?}", self.token());
-        if self.iteration + 1 < self.tokens.len() {
-            println!("Next token:     {:?}", self.get_token(self.iteration + 1));
-        } else {
-            println!("This is the last token");
-        }
-        println!("---------------------------------------------------------------------------");
-    }
-
-    fn program(&mut self) -> MayFail {
-        match self.tokens.ends_with(&[TokenType::Period.into()]) {
-            false => throw!(1),
-            true => self.block(),
-        }
-    }
-
-    fn block(&mut self) -> MayFail {
-        self.const_declaration()?;
-        let number_of_vars = self.var_declaration()?;
-        self.emit(Instruction::INC, number_of_vars + 3);
-        self.statement()?;
-        self.emit(Instruction::SYS, Syscall::Halt);
-        Ok(())
-    }
-
-    fn const_declaration(&mut self) -> MayFail {
-        if self.token() == TokenType::Const {
-            loop {
-                let token = self.next();
-
-                if token != TokenType::Ident {
-                    return throw!(2);
-                }
-
-                let ident_name = self.token().get_meta()?;
-
-                if self.symbol_table.has_symbol(ident_name) {
-                    return throw!(3);
-                }
-
-                let ident_offset = self.symbol_table.push_const(ident_name.clone(), 0)?;
-                let token = self.next();
-
-                if token != TokenType::Eq {
-                    return throw!(4);
-                }
-
-                let token = self.next();
-
-                if token != TokenType::Number {
-                    return throw!(5);
-                }
-
-                let ident_value = self.token().get_number()?;
-                self.symbol_table[ident_offset].value = ident_value;
-
-                self.next();
-
-                if self.token() != TokenType::Comma {
-                    break;
-                }
-            }
-
-            if self.token() != TokenType::Semicolon {
-                return throw!(6);
-            }
-
-            self.next();
-        }
-        Ok(())
-    }
-
-    fn var_declaration(&mut self) -> MayFail<usize> {
-        let mut count = 0;
-
-        if self.token() == TokenType::Var {
-            loop {
-                count += 1;
-
-                let token = self.next();
-
-                if token != TokenType::Ident {
-                    return throw!(2);
-                }
-
-                let ident_name = self.token().get_meta()?;
-
-                if self.symbol_table.has_symbol(ident_name) {
-                    return throw!(3);
-                }
-
-                self.symbol_table.push_var(ident_name.clone(), count + 2)?;
-                self.next();
-
-                if self.token() != TokenType::Comma {
-                    break;
-                }
-            }
-
-            if self.token() != TokenType::Semicolon {
-                return throw!(6);
-            }
-        }
-
-        self.next();
-
-        Ok(count)
-    }
-
-    fn statement(&mut self) -> MayFail {
-        match self.kind() {
-            TokenType::Ident => {
-                let symbol_index = self.get_symbol_index()?;
-
-                if self.get_symbol(symbol_index)?.kind != SymbolKind::Var {
-                    return throw!(8);
-                }
-
-                let token = self.next();
-
-                if token != TokenType::Becomes {
-                    return throw!(9);
-                }
-
-                self.next();
-                self.expression()?;
-                self.emit(Instruction::STO, self.get_symbol(symbol_index)?.addr);
-            }
-            TokenType::Begin => {
-                loop {
-                    self.next();
-
-                    if self.token() == TokenType::End {
-                        break;
-                    }
-
-                    self.statement()?;
-
-                    if self.token() != TokenType::Semicolon {
-                        break;
-                    }
-                }
-
-                if self.token() != TokenType::End {
-                    return throw!(10);
-                }
-
-                self.next();
-            }
-            TokenType::If => {
-                self.next();
-                self.condition()?;
-
-                let jpc_index = self.pcode.len();
-                self.emit(Instruction::JPC, 0usize);
-
-                if self.token() != TokenType::Then {
-                    return throw!(11);
-                }
-
-                self.next();
-                self.statement()?;
-
-                if self.token() != TokenType::Fi {
-                    return throw!(16);
-                }
-
-                self.next();
-
-                self.pcode[jpc_index].M = self.jpc_offset();
-            }
-            TokenType::While => {
-                self.next();
-
-                let loop_index = self.pcode.len();
-                self.condition()?;
-
-                if self.token() != TokenType::Do {
-                    return throw!(12);
-                }
-
-                self.next();
-
-                let jpc_index = self.pcode.len();
-
-                self.emit(Instruction::JPC, 0usize);
-                self.statement()?;
-                self.emit(Instruction::JMP, loop_index);
-
-                self.pcode[jpc_index].M = self.jpc_offset();
-            }
-            TokenType::Read => {
-                self.next();
-
-                if self.token() != TokenType::Ident {
-                    return throw!(2);
-                }
-
-                let symbol_index = self.get_symbol_index()?;
-
-                if self.get_symbol(symbol_index)?.kind != SymbolKind::Var {
-                    return throw!(8);
-                }
-
-                self.next();
-                self.emit(Instruction::SYS, Syscall::Read);
-                self.emit(Instruction::STO, self.get_symbol(symbol_index)?.addr);
-            }
-            TokenType::Write => {
-                self.next();
-                self.expression()?;
-                self.emit(Instruction::SYS, Syscall::Write);
-            }
-            token => unreachable!("Statement received an unknown token type: TokenType::{token:?}"),
-        };
-
-        Ok(())
-    }
-
-    fn condition(&mut self) -> MayFail {
-        self.expression()?;
-
-        macro_rules! assert_kind {
-            ($(($token:ident, $instr:ident)),*) => {
-                match self.kind() {
-                    $(
-                        TokenType::$token => {
-                            self.next();
-                            self.expression()?;
-                            self.emit(Instruction::OPR, OprCode::$instr);
-                            Ok(())
-                        }
-                    )*
-                    _ => throw!(15)
-                }
-            };
-        }
-
-        assert_kind![
-            (Eq, EQL),
-            (Neq, NEG),
-            (Les, LSS),
-            (Leq, LEQ),
-            (Gtr, GTR),
-            (Geq, GEQ)
-        ]
-    }
-
-    fn expression(&mut self) -> MayFail {
-        macro_rules! match_kind {
-            () => {
-                while matches!(self.kind(), TokenType::Minus | TokenType::Plus) {
-                    match self.kind() {
-                        TokenType::Minus => {
-                            self.next();
-                            self.term()?;
-                            self.emit(Instruction::OPR, OprCode::SUB);
-                        }
-                        TokenType::Plus => {
-                            self.next();
-                            self.term()?;
-                            self.emit(Instruction::OPR, OprCode::ADD);
-                        }
-                        _ => unreachable!(),
-                    }
-                }
-            };
-        }
-
-        match self.kind() {
-            TokenType::Minus => {
-                self.next();
-                self.term()?;
-                self.emit(Instruction::OPR, OprCode::NEG);
-                match_kind!();
-            }
-            kind => {
-                if kind == TokenType::Plus {
-                    self.next();
-                }
-                self.term()?;
-                match_kind!();
-            }
-        }
-        Ok(())
-    }
-
-    fn term(&mut self) -> MayFail {
-        self.factor()?;
-
-        macro_rules! match_kind {
-            ($(($token:ident, $instr:ident)),*) => {
-                while matches!(self.kind(), $(TokenType::$token)|*) {
-                    match self.kind() {
-                        $(
-                            TokenType::$token => {
-                                self.next();
-                                self.factor()?;
-                                self.emit(Instruction::OPR, OprCode::$instr);
-                            }
-                        )*
-                        _ => unreachable!(),
-                    }
-                }
-            };
-        }
-
-        Ok(match_kind![(Mult, MUL), (Slash, DIV)])
-    }
-
-    fn factor(&mut self) -> MayFail {
-        match self.kind() {
-            TokenType::Ident => {
-                let symbol_index = self.get_symbol_index()?;
-
-                self.symbol_table[symbol_index].mark = true;
-
-                let symbol = self.get_symbol(symbol_index)?;
-
-                if symbol.kind == SymbolKind::Const {
-                    self.emit(Instruction::LIT, symbol.value);
-                } else {
-                    self.emit(Instruction::LOD, symbol.addr);
-                }
-
-                self.next();
-            }
-            TokenType::Number => {
-                let value = self.token().get_number()?;
-                self.emit(Instruction::LIT, value);
-                self.next();
-            }
-            TokenType::Lparent => {
-                self.next();
-                self.expression()?;
-
-                if self.token() != TokenType::Rparent {
-                    return throw!(14);
-                }
-
-                self.next();
-            }
-            _ => return throw!(15),
-        }
-
-        Ok(())
-    }
-}
-
-impl From<Vec<Token>> for TokenStream {
-    fn from(value: Vec<Token>) -> Self {
-        Self {
-            iteration: 0,
-            tokens: value,
-            symbol_table: SymbolTable::new(),
-            pcode: PCode::new(),
-        }
-    }
-}
-
-impl PartialEq<TokenType> for &Token {
-    fn eq(&self, other: &TokenType) -> bool {
-        self.kind == *other
-    }
-}
-
-fn main() -> MayFail {
-    let file = std::fs::read_to_string("tokens.txt")?;
-
-    let tokens = file
-        .lines()
-        .into_iter()
-        .filter(|line| !line.is_empty() && !line.chars().all(char::is_whitespace))
-        .map(Token::from)
-        .collect::<Vec<_>>();
-
-    let mut token_stream = TokenStream::from(tokens);
-
-    if let Err(e) = token_stream.program() {
-        println!("{e:?}");
-        return Ok(());
-    }
-
-    token_stream.pcode.print();
-    token_stream.symbol_table.print();
-    token_stream.pcode.finish()
-}
-*/
