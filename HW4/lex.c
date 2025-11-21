@@ -2,7 +2,7 @@
 Assignment:
 HW4 - Complete Parser and Code Generator for PL/0
 (with Procedures, Call, and Else)
-Author(s): Luiz Gusatvo Santana Dias Gomes
+Author(s): Luiz Gustavo Santana Dias Gomes
 Language: C (only)
 To Compile:
 Scanner:

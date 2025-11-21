@@ -2,7 +2,7 @@
 Assignment:
 HW4 - Complete Parser and Code Generator for PL/0
 (with Procedures, Call, and Else)
-Author(s): Luiz Gusatvo Santana Dias Gomes
+Author(s): Luiz Gustavo Santana Dias Gomes
 Language: C (only)
 To Compile:
 Scanner:
@@ -36,7 +36,7 @@ Due Date: Friday, November 21, 2025 at 11:59 PM ET
 #include <string.h>
 
 /// Stack size was determined to be 500 in the assignment details
-#define STACK_SIZE 500
+#define STACK_SIZE 5500
 
 /// PC of a downward moving stack is the length of Stack - 1
 /// to match the last index in it
@@ -104,11 +104,11 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Maximum of 500 instructions for that file
-    InstRegister instructions[500];
+    // Maximum of STACK_SIZE instructions for that file
+    InstRegister instructions[STACK_SIZE];
 
-    // Maximum of 500 characters for each line split
-    char buffer[500];
+    // Maximum of STACK_SIZE characters for each line split
+    char buffer[STACK_SIZE];
 
     // Keep track of how many instructions there are in the file
     int len_instructions = 0;
@@ -147,6 +147,13 @@ int main(int argc, char *argv[]) {
 
     // Close the file
     fclose(file_ptr);
+
+    // If there isn't anything to run, then just exit the program and avoid a free UB.
+    // If there are too few instructions, it is also suspecious
+    if (len_instructions > STACK_SIZE || len_instructions <= 1) {
+        printf("Error: Too many instructions or no instructions could be parsed.\n");
+        return 0;
+    }
 
     // Formula to get the last instruction
     // 3 words, X instructions; Growing downwards
@@ -292,8 +299,7 @@ int main(int argc, char *argv[]) {
             }
             case 11: {
                 strcpy(op_name, "EVEN");
-                PAS[SP + 1] = PAS[SP] % 2 == 0;
-                SP += 1;
+                PAS[SP] = PAS[SP] % 2 == 0;
                 break;
             }
             }
@@ -397,7 +403,7 @@ int main(int argc, char *argv[]) {
 
         // Hold stack frames until reach the main caller
         // SP and BP's will be stored here, then printed in reverse order to the console
-        StackFrame stack_frames[500] = {0};
+        StackFrame stack_frames[STACK_SIZE] = {0};
 
         // Temporary variable to hold current BP and SP
         // They will be inserted in the stack_frames array to record position of a stack

@@ -2,7 +2,7 @@
 Assignment:
 HW4 - Complete Parser and Code Generator for PL/0
 (with Procedures, Call, and Else)
-Author(s): Luiz Gusatvo Santana Dias Gomes
+Author(s): Luiz Gustavo Santana Dias Gomes
 Language: C (only)
 To Compile:
 Scanner:
@@ -38,6 +38,15 @@ Due Date: Friday, November 21, 2025 at 11:59 PM ET
 
 #define MAX_SYMBOL_TABLE_SIZE 500
 #define MAX_PCODE_SIZE 5000
+
+// ! There are debug symbols commented over the code and they can be used to verify in which
+// ! Iteration, Code Length, Symbol type, Token Type, line and column the error was thrown
+// ! like a full Rust-backtrace. Rust implementation was omitted
+
+// ? Functions that need an argument to return indexes are effectively useless. They could use
+// ? A heap-alloc integer pointer to return the adderess -> `Box<i32>` inside of the Ok.value
+// ? `void*` field, and never free it (as it is in the whole program, where most memory is never)
+// ? freed (and it does not matter because almost everything lives on the stack in this parser)
 
 /// Creating a new helper macro to propagate errors through functions that may fail
 /// Same as Rust's `?` operator. Propagates the error if MayFail failed.
@@ -199,9 +208,10 @@ typedef struct TokenStream {
 /// @brief Previously defined in TokenStream struct (Rust)
 static Register pcode[MAX_PCODE_SIZE];
 
+/// @brief Current PCODE index
 static int PCODE_LEN = 0;
+/// @brief Lexographical level the program is currently at.
 static int LEVEL = 0;
-static int NUM_PROCS = 0;
 
 /// @brief Same as `self.iteration`
 static int TS_ITERATION = 0;
@@ -221,6 +231,7 @@ MayFail ts_expression(TokenStream *self);
 MayFail ts_term(TokenStream *self);
 MayFail ts_factor(TokenStream *self);
 MayFail ts_get_token(TokenStream *self, int iteration);
+MayFail st_find_symbol_eq(Symbol f_symbol);
 int token_get_number(Token token);
 void dbg_symbol(Symbol symbol);
 
@@ -360,15 +371,16 @@ MayFail st_get_index(int index) {
     return Ok(&(symbol_table[index]));
 }
 
-/// @brief Assigns to `out_index` the index of the symbol. Can fail.
+/// @brief Assigns to `out_index` the index of the symbol. Can fail, [Loop backwards]
 /// @param name Name of the ident to be searched for
 /// @param code Code to be called in function `throw` if an error occur.
 /// @param out_index Variable where the index will be assigned, if it exists
 /// @return `struct MayFail` with `void*` null
-/// Loop backwards
+/// *out_index wouldn't be necessary if the integer was allocated on heap - I could have changed it
+/// but at this point it appears in so many places that I'll like as it is.
 MayFail st_find_index_or_throw(char *name, int code, int *out_index) {
     // printf("Looking for symbol [name]: %s\n", name);
-    for (int i = 0; i < SYMBOL_TABLE_LEN; i++) {
+    for (int i = SYMBOL_TABLE_LEN - 1; i >= 0; i--) {
         Symbol symbol = symbol_table[i];
         // dbg_symbol(symbol);
         if (strcmp(symbol.name, name) == 0 && symbol.mark == 0) {
@@ -377,6 +389,24 @@ MayFail st_find_index_or_throw(char *name, int code, int *out_index) {
         }
     }
     return Err(throw(code));
+}
+
+/// @brief Takes in a symbol and looks in the symbol table for some stored symbol that is identical to `f_symbol`
+/// @param f_symbol The symbol to be fully compared (Same as Rust's `PartialEq` trait)
+/// @return `Ok(int*)`, `Err(7)`
+MayFail st_find_symbol_eq(Symbol f_symbol) {
+    int *out_index = malloc(sizeof(int));
+    // printf("Looking for symbol [name]: %s\n", name);
+    for (int i = SYMBOL_TABLE_LEN - 1; i >= 0; i--) {
+        Symbol symbol = symbol_table[i];
+        // dbg_symbol(symbol);
+        if (
+            strcmp(symbol.name, f_symbol.name) == 0 && symbol.val == f_symbol.val && symbol.addr == f_symbol.addr && symbol.mark == f_symbol.mark && symbol.level == f_symbol.level && symbol.kind == f_symbol.kind) {
+            *out_index = i;
+            return Ok(out_index);
+        }
+    }
+    return Err(throw(7));
 }
 
 /// @brief Inserts a symbol to the symbol table. Can't fail.
@@ -391,14 +421,22 @@ void st_push_symbol(Symbol symbol) {
 /// @return `struct MayFail`. Fails if the symbol already exists. `void*` is of type `int`
 /// representing the index of the symbol that was just inserted
 MayFail st_push_value(Symbol symbol) {
-    int *out_index = malloc(sizeof(int));
-    MayFail fail = st_find_index_or_throw(symbol.name, 3, out_index);
+    // We can add symbols with the same name, as long as they are in different levels.
+    // So a simple by-name lookup is not enough (function `st_find_index_or_throw`),
+    // so this function does a full comparison to find the symbol. We can only add if it is
+    // not found in the symbol table.
+    MayFail fail = st_find_symbol_eq(symbol);
     if (fail.is_error) {
         st_push_symbol(symbol);
-        return Ok(out_index);
+        return Ok(fail.value);
     } else {
+        // dbg_symbol(symbol);
         // st_print();
-        return Err(throw(3));
+        // printf("Symbol literal %s already exists\n", symbol.name);
+
+        // If the literal symbol is already present in the symbol table, throw the
+        // already declared error
+        return Err(fail.error_message);
     }
 }
 
@@ -522,7 +560,7 @@ TokenType ts_next(TokenStream *self) {
 MayFail ts_get_symbol_index(TokenStream *self, int *out_index) {
     Token token = ts_token(self);
     char *meta = token.meta;
-    // printf("Meta: %s ", meta);
+    // printf("Meta: %s \n", meta);
     try(st_find_index_or_throw(meta, 7, out_index));
     return Ok(NULL);
 }
@@ -548,14 +586,22 @@ MayFail ts_program(TokenStream *self) {
         return Err(throw(1));
     }
 
-    try(ts_block(self));
+    int start_index = PCODE_LEN;
+    ts_emit(self, Instruction_JMP, 0, 0);
+
+    LEVEL = 0;
+
+    int main_start = try_cast(int, ts_block(self));
+
+    pcode[start_index].M = 3 * main_start;
+
     ts_emit(self, Instruction_SYS, 0, Syscall_Halt);
 
     return Ok(NULL);
 }
 
 /// @brief Parses `block`
-/// @return `struct MayFail` with `void*` null
+/// @return `struct MayFail` with `void*` being the index of the `INC` instruction
 MayFail ts_block(TokenStream *self) {
     try(ts_const_declaration(self));
 
@@ -563,19 +609,14 @@ MayFail ts_block(TokenStream *self) {
 
     try(ts_var_declaration(self, &number_of_vars));
 
-    int start = PCODE_LEN;
+    // ts_emit(self, Instruction_JMP, 0, 0);
+
     // printf("Start at index: %d\n", start);
     try(ts_procedure_declaration(self));
-    int end = PCODE_LEN;
-    int instr_emmited = end - start;
 
-    if (LEVEL != 0) {
-        pcode[start].M = (instr_emmited + NUM_PROCS) * 3;
+    int *inc_start = malloc(sizeof(int));
+    *inc_start = PCODE_LEN;
 
-        ts_emit(self, Instruction_JMP, 0, 3 + 3 * NUM_PROCS);
-    } else {
-        pcode[start].M = instr_emmited * 3;
-    }
     ts_emit(self, Instruction_INC, 0, number_of_vars + 3);
 
     // printf("Starting statement after proc decl, level: %d, LEN: %d\n", LEVEL, PCODE_LEN);
@@ -591,7 +632,7 @@ MayFail ts_block(TokenStream *self) {
         symbol_table[i].mark = 1;
     }
 
-    return Ok(NULL);
+    return Ok(inc_start);
 }
 
 MayFail ts_const_declaration(TokenStream *self) {
@@ -695,11 +736,11 @@ MayFail ts_var_declaration(TokenStream *self, int *count) {
     return Ok(NULL);
 }
 
+/// @brief Parses procedures and keeps their records of LEVEL (updating globally)
+/// @param self Context
+/// @return Nothing
 MayFail ts_procedure_declaration(TokenStream *self) {
     while (ts_kind(self) == TokenType_Proc) {
-        NUM_PROCS++;
-        ts_emit(self, Instruction_JMP, 0, 3 * (LEVEL + 2));
-
         if (ts_next(self) != TokenType_Ident) {
             return Err(throw(2));
         }
@@ -710,13 +751,16 @@ MayFail ts_procedure_declaration(TokenStream *self) {
             return Err(throw(23));
         }
 
+        int current_len = PCODE_LEN;
+        ts_emit(self, Instruction_JMP, 0, 0);
+
         ts_next(self);
         Symbol symbol_value = {
             .name = {0},
             .kind = SymbolKind_Proc,
             .val = 0,
             .level = LEVEL,
-            .addr = 3 * PCODE_LEN,
+            .addr = 3 * current_len,
             .mark = 0,
         };
 
@@ -724,20 +768,26 @@ MayFail ts_procedure_declaration(TokenStream *self) {
         symbol_value.name[sizeof symbol_value.name - 1] = '\0';
 
         try(st_push_value(symbol_value));
-        LEVEL += 1;
+        LEVEL++;
+
+        int body_start = try_cast(int, ts_block(self));
         // puts("Entering block inside proc");
-        try(ts_block(self));
         // puts("Left block of proc");
         // printf("LEVEL: %d\n", LEVEL);
-        LEVEL -= 2;
+
+        ts_emit(self, Instruction_OPR, 0, OprCode_RTN);
+
+        LEVEL--;
         // printf("[1] LEVEL: %d\n", LEVEL);
 
+        pcode[current_len].M = 3 * body_start;
+
         if (ts_kind(self) != TokenType_Semicolon) {
+            // Unespecified error type; Procedures should have a semicolon but nothing was
+            // provided in the assignment about it
             return Err("Error: Expected semicolon after block of procedure declaration");
         }
 
-        LEVEL++;
-        ts_emit(self, Instruction_OPR, LEVEL, OprCode_RTN);
         ts_next(self);
     }
     return Ok(NULL);
@@ -805,6 +855,8 @@ MayFail ts_statement(TokenStream *self) {
         ts_next(self);
         try(ts_statement(self));
 
+        // printf("Token kind: %d\n", ts_kind(self));
+
         if (ts_kind(self) != TokenType_Else) {
             return Err(throw(22));
         }
@@ -865,6 +917,8 @@ MayFail ts_statement(TokenStream *self) {
 
         ts_next(self);
         ts_emit(self, Instruction_SYS, 0, Syscall_Read);
+        // Current level - symbol level to account for level changes. If current level is 1 and
+        // the symbol is also in 1, the STO is L = 0 (current), so only the change is calculated
         ts_emit(self, Instruction_STO, LEVEL - retreived_symbol.level, retreived_symbol.addr);
         break;
     }
@@ -893,6 +947,8 @@ MayFail ts_statement(TokenStream *self) {
         TokenType this_token = ts_kind(self);
         char *message = malloc(256);
         snprintf(message, 256, "Error: Found unexpected token id: %d at iteration %d", this_token, TS_ITERATION);
+        // Debug message to display to the console in case of Undefined Behavior. It is likely to happen
+        // if some function has wrong return type (MayFail returning anything other than Ok<T> or Err<E>)
         // printf("Error: [default] %s\n", message);
         return Err(message);
     }
@@ -1174,6 +1230,8 @@ int main() {
     return 0;
 }
 
+/// @brief Prints a symbol as in Rust's `Debug` trait.
+/// @param symbol
 void dbg_symbol(Symbol symbol) {
     printf(
         "Symbol: { Kind: %d, Name: %s, Value: %d, Level: %d, Address: %d, Mark: %d }\n",
